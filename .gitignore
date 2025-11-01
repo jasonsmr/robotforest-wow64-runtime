@@ -1,0 +1,8 @@
+# outputs
+dist/
+staging/**/bin/box64
+staging/**/bin/box86
+*.apk *.aab *.ap_ *.zip *.7z *.tar *.tar.* *.tgz *.gz *.bz2 *.xz *.zst
+*.dll *.so *.a *.pdb *.exe
+# caches/temp
+.tmp/ tmp/ .cache/
