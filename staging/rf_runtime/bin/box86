@@ -1,0 +1,2 @@
+#!/system/bin/sh
+echo "Use exec-mounted libbox86.so (provided via APK jniLibs)."
