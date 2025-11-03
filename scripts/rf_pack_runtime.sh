@@ -1,3 +1,4 @@
+set -euo pipefail
 #!/data/data/com.termux/files/usr/bin/env bash
 set -euo pipefail
 
@@ -16,3 +17,14 @@ cd "$STAGE"
 zip -r "$OUT" . -x '*/.git/*' '*/__pycache__/*' >/dev/null
 
 echo "[pack] wrote $OUT"
+
+# Helpers
+extract_zst() {
+  # Usage: extract_zst <archive.zst> <destdir>
+  set -euo pipefail
+  in="$1"; out="$2"
+  mkdir -p "$out"
+  # robust: do not assume tar --zstd; use unzstd | tar -x
+  command -v unzstd >/dev/null 2>&1 || { echo >&2 "[err] zstd not present"; exit 1; }
+  unzstd -c "$in" | tar -x -C "$out"
+}
