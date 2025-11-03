@@ -5,13 +5,16 @@ on:
     tags:
       - 'v*.*.*'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up bash + deps
+      - name: Set up deps
         run: |
           sudo apt-get update
           sudo apt-get install -y xz-utils zip curl tar zstd
@@ -20,6 +23,18 @@ jobs:
         run: |
           chmod +x scripts/rf_pack_runtime.sh || true
           ./scripts/rf_pack_runtime.sh
+          ls -l dist/
+
+      - name: Normalize artifact name for tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          SRC="$(ls dist/*.zip | head -n1)"
+          DST="dist/robotforest-wow64-runtime-${TAG}.zip"
+          echo "Renaming $SRC -> $DST"
+          mv "$SRC" "$DST"
           ls -l dist/
 
       - name: Upload artifact
@@ -37,7 +52,10 @@ jobs:
           name: rf-runtime
           path: dist
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release and upload
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*.zip
+          draft: false
+          prerelease: false
+          make_latest: true
