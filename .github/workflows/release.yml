@@ -14,54 +14,42 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0   # ensure tags available
-
-      - name: Show runner info
-        run: |
-          set -euxo pipefail
-          uname -a
-          bash --version || true
-          tar --version || true
-          curl --version || true
 
       - name: Install deps
         run: |
-          set -euxo pipefail
           sudo apt-get update
-          # add jq and file (handy for scripts and diagnostics)
-          sudo apt-get install -y xz-utils zip curl tar zstd jq file
+          sudo apt-get install -y zip zstd jq file
 
-      - name: Pack runtime (verbose)
+      - name: Run packer (bash)
+        shell: bash
         run: |
-        run: |
+          set -euo pipefail
           bash scripts/rf_pack_runtime.sh
-          ls -l dist/
-          set -euxo pipefail
-          chmod +x scripts/rf_pack_runtime.sh || true
-          bash -euxo pipefail scripts/rf_pack_runtime.sh
-          ls -l dist/ || true
+          ls -la dist
 
-      - name: Normalize artifact name for tag
+      - name: Rename ZIP to include tag (or latest)
+        shell: bash
         env:
           TAG: ${{ github.ref_name }}
         run: |
-          set -euxo pipefail
-          mkdir -p dist
-          # pick the first file made by packer
-          SRC="$(ls dist/*.zip | head -n1)"
-          echo "Found: $SRC"
-          DST="dist/robotforest-wow64-runtime-${TAG}.zip"
-          mv "$SRC" "$DST"
-          ls -l dist/
+          set -euo pipefail
+          f="$(ls -1 dist/*.zip | head -n1)"
+          if [[ -z "${f:-}" ]]; then
+            echo "No zip in dist/" >&2
+            exit 1
+          fi
+          if [[ -n "${TAG:-}" && "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            mv "$f" "dist/robotforest-wow64-runtime-${TAG}.zip"
+          fi
+          ls -la dist
 
-      - name: Upload artifact (debug & release)
+      - name: Upload artifact (debug + release)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: rf-runtime-dist
           path: |
-            dist/*.zip
+            dist/**
             staging/**
             scripts/**
             **/*.log
@@ -74,12 +62,28 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: rf-runtime-dist
-          path: dist
+          path: out
+
+      - name: Locate runtime ZIP
+        id: findzip
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Because the artifact preserves relative paths, the ZIP will be under out/dist/
+          zip_path="$(ls -1 out/**/robotforest-wow64-runtime-*.zip 2>/dev/null | head -n1 || true)"
+          if [[ -z "${zip_path:-}" ]]; then
+            echo "No runtime zip found under out/" >&2
+            echo "Files under out/:" >&2
+            find out -maxdepth 3 -type f -printf '%p\n' >&2 || true
+            exit 1
+          fi
+          echo "zip_path=${zip_path}" >> "$GITHUB_OUTPUT"
+          ls -l "$zip_path"
 
       - name: Create Release with asset
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/robotforest-wow64-runtime-*.zip
+          files: ${{ steps.findzip.outputs.zip_path }}
           draft: false
           prerelease: false
           make_latest: true
