@@ -34,6 +34,9 @@ jobs:
 
       - name: Pack runtime (verbose)
         run: |
+        run: |
+          bash scripts/rf_pack_runtime.sh
+          ls -l dist/
           set -euxo pipefail
           chmod +x scripts/rf_pack_runtime.sh || true
           bash -euxo pipefail scripts/rf_pack_runtime.sh
