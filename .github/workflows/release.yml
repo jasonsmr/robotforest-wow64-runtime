@@ -14,35 +14,55 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # ensure tags available
 
-      - name: Set up deps
+      - name: Show runner info
         run: |
+          set -euxo pipefail
+          uname -a
+          bash --version || true
+          tar --version || true
+          curl --version || true
+
+      - name: Install deps
+        run: |
+          set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y xz-utils zip curl tar zstd
+          # add jq and file (handy for scripts and diagnostics)
+          sudo apt-get install -y xz-utils zip curl tar zstd jq file
 
-      - name: Pack runtime
+      - name: Pack runtime (verbose)
         run: |
+          set -euxo pipefail
           chmod +x scripts/rf_pack_runtime.sh || true
-          ./scripts/rf_pack_runtime.sh
-          ls -l dist/
+          bash -euxo pipefail scripts/rf_pack_runtime.sh
+          ls -l dist/ || true
 
       - name: Normalize artifact name for tag
         env:
           TAG: ${{ github.ref_name }}
         run: |
-          set -euo pipefail
+          set -euxo pipefail
           mkdir -p dist
+          # pick the first file made by packer
           SRC="$(ls dist/*.zip | head -n1)"
+          echo "Found: $SRC"
           DST="dist/robotforest-wow64-runtime-${TAG}.zip"
-          echo "Renaming $SRC -> $DST"
           mv "$SRC" "$DST"
           ls -l dist/
 
-      - name: Upload artifact
+      - name: Upload artifact (debug & release)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: rf-runtime
-          path: dist/*.zip
+          name: rf-runtime-dist
+          path: |
+            dist/*.zip
+            staging/**
+            scripts/**
+            **/*.log
+          if-no-files-found: warn
 
   release:
     needs: build
@@ -50,13 +70,13 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: rf-runtime
+          name: rf-runtime-dist
           path: dist
 
-      - name: Create GitHub Release and upload
+      - name: Create Release with asset
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.zip
+          files: dist/robotforest-wow64-runtime-*.zip
           draft: false
           prerelease: false
           make_latest: true
