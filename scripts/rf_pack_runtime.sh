@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 set -euo pipefail
 #!/data/data/com.termux/files/usr/bin/env bash
 set -euo pipefail
