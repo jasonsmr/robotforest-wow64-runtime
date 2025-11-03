@@ -1,8 +1,15 @@
-# outputs
-dist/
-staging/**/bin/box64
-staging/**/bin/box86
-*.apk *.aab *.ap_ *.zip *.7z *.tar *.tar.* *.tgz *.gz *.bz2 *.xz *.zst
-*.dll *.so *.a *.pdb *.exe
-# caches/temp
-.tmp/ tmp/ .cache/
+# outputs / payloads
+/dist/
+/staging/**/prefix/drive_c/users/*/Temp/
+/staging/**/prefix/drive_c/ProgramData/Package Cache/
+/staging/**/prefix/dosdevices/c:/windows/Temp/
+/staging/**/prefix/*.log
+*.zip
+*.tar
+*.tar.zst
+*.tar.gz
+
+# editor noise
+.*.swp
+.idea/
+.gradle/
