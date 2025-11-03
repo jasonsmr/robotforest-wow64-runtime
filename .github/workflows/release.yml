@@ -20,27 +20,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y zip zstd jq file
 
-      - name: Run packer (bash)
+      - name: Run packer with tag
         shell: bash
+        env:
+          RF_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           bash scripts/rf_pack_runtime.sh
-          ls -la dist
-
-      - name: Rename ZIP to include tag (or latest)
-        shell: bash
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          f="$(ls -1 dist/*.zip | head -n1)"
-          if [[ -z "${f:-}" ]]; then
-            echo "No zip in dist/" >&2
-            exit 1
-          fi
-          if [[ -n "${TAG:-}" && "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            mv "$f" "dist/robotforest-wow64-runtime-${TAG}.zip"
-          fi
           ls -la dist
 
       - name: Upload artifact (debug + release)
@@ -69,11 +55,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Because the artifact preserves relative paths, the ZIP will be under out/dist/
           zip_path="$(ls -1 out/**/robotforest-wow64-runtime-*.zip 2>/dev/null | head -n1 || true)"
           if [[ -z "${zip_path:-}" ]]; then
-            echo "No runtime zip found under out/" >&2
-            echo "Files under out/:" >&2
+            echo "No runtime zip found under out/:" >&2
             find out -maxdepth 3 -type f -printf '%p\n' >&2 || true
             exit 1
           fi
