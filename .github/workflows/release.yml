@@ -1,0 +1,43 @@
+name: Build & Release runtime zip
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up bash + deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xz-utils zip curl tar zstd
+
+      - name: Pack runtime
+        run: |
+          chmod +x scripts/rf_pack_runtime.sh || true
+          ./scripts/rf_pack_runtime.sh
+          ls -l dist/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rf-runtime
+          path: dist/*.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: rf-runtime
+          path: dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
