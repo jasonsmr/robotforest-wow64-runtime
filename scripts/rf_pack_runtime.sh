@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
 # If RF_TAG (or GITHUB_REF_NAME) looks like vX.Y.Z, use it; else fall back to timestamp.
 TAG="${RF_TAG:-${GITHUB_REF_NAME:-}}"
 if [[ "${TAG:-}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
