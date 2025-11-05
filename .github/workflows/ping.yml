@@ -1,0 +1,17 @@
+name: Ping
+
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: 'Echo message'
+        required: false
+        default: 'hello'
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Echo
+        run: |
+          echo "PING: ${{ inputs.message }}"
