@@ -18,6 +18,10 @@ jobs:
       PROTON_TAG: GE-Proton10-9
       DXVK_TAG: v2.4
       VKD3D_TAG: v2.13
+    env:
+      PROTON_TAG: GE-Proton10-9
+      DXVK_TAG: v2.4
+      VKD3D_TAG: v2.13
     if: startsWith(github.ref, 'refs/tags/v')  # ignore non-tag dispatches
     steps:
       - uses: actions/checkout@v4
@@ -34,7 +38,7 @@ jobs:
             staging/proton.tar.gz
             staging/dxvk.tar.gz
             staging/vkd3d.tar.zst
-          key: upstream-${{ env.PROTON_TAG ||  }}-${{ env.DXVK_TAG ||  }}-${{ env.VKD3D_TAG ||  }}
+          key: upstream-${{ env.PROTON_TAG }}-${{ env.DXVK_TAG }}-${{ env.VKD3D_TAG }}
 
     steps:
       - uses: actions/checkout@v4
@@ -42,7 +46,7 @@ jobs:
       - name: Install deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y zip zstd jq file
+          sudo apt-get install -y zip zstd jq file aria2 pv
 
       - name: Fetch Proton/DXVK/vkd3d components
         env:
