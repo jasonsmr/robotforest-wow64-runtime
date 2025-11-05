@@ -1,0 +1,20 @@
+name: RF Mini
+
+on:
+  workflow_dispatch:
+    inputs:
+      msg:
+        description: 'Message'
+        required: false
+        default: 'hello-mini'
+
+jobs:
+  say:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Echo
+        run: |
+          echo "EVENT=${{ github.event_name }}"
+          echo "REF_NAME=${{ github.ref_name }}"
+          echo "MSG=${{ inputs.msg }}"
+          echo "TIME=$(date -u +%FT%TZ)"
