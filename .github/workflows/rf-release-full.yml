@@ -1,1 +1,31 @@
-<paste the YAML above>
+name: RF Runtime Release (full)
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build (e.g. v0.2.9). Leave empty to build current ref.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+# No inputs at top-level to keep parser happy
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sanity:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Show dispatch inputs + ref
+        run: |
+          echo "EVENT=${{ github.event_name }}"
+          echo "REF_NAME=${{ github.ref_name }}"
+          echo "INPUT_TAG=${{ inputs.tag }}"
