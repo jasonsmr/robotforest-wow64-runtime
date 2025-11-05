@@ -81,9 +81,11 @@ jobs:
       - name: Create Release with asset (bind to tag)
         uses: softprops/action-gh-release@v2
         with:
+          files: |
+            ${{ steps.findzip.outputs.zip_path }}
+            ${{ steps.findzip.outputs.zip_path }}.sha256
           tag_name: ${{ github.ref_name }}
           name: robotforest-wow64-runtime ${{ github.ref_name }}
-          files: ${{ steps.findzip.outputs.zip_path }}
           draft: false
           prerelease: false
           make_latest: true
