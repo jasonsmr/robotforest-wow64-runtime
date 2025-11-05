@@ -21,6 +21,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y zip zstd jq file
 
+      - name: Fetch Proton/DXVK/vkd3d components
+        env:
+          PROTON_TAG: ${PROTON_TAG:-GE-Proton9-17}
+          DXVK_TAG: ${DXVK_TAG:-v2.4}
+          VKD3D_TAG: ${VKD3D_TAG:-v2.13}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/ci/fetch_components.sh
+
       - name: Run packer (bash) with tag
         env:
           RF_TAG: ${{ github.ref_name }}
