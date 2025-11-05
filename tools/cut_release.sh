@@ -9,4 +9,4 @@ git tag -a "$TAG" -m "robotforest-wow64-runtime $TAG" || true
 git push origin "$TAG"
 
 # Wait for the GitHub Action to build & publish the ZIP
-"$(dirname "$0")/await_release.sh" "$TAG" 300
+"$(dirname "$0")/await_release.sh" "$TAG" ${WAIT_SECS:-1800}
