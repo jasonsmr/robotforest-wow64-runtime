@@ -4,6 +4,12 @@ concurrency:
   cancel-in-progress: true
 
 on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to build (e.g. v0.2.7)
+        required: false
+        type: string
   push:
     tags:
       - 'v*.*.*'
@@ -14,6 +20,11 @@ permissions:
 
 jobs:
   build:
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      PROTON_TAG: GE-Proton10-9
+      DXVK_TAG: v2.4
+      VKD3D_TAG: v2.13
     env:
       PROTON_TAG: GE-Proton10-9
       DXVK_TAG: v2.4
