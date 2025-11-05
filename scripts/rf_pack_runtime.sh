@@ -23,3 +23,9 @@ zip -r9 "$OUT" \
 
 echo "[pack] wrote $OUT"
 ls -l "$DIST"
+
+# --- integrity ---
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256sum "$OUT" > "$OUT.sha256"
+  echo "[pack] wrote $OUT.sha256"
+fi
