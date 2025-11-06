@@ -1,0 +1,19 @@
+name: ZZ Dispatch Sanity
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Optional tag'
+        required: false
+        default: ''
+
+jobs:
+  sanity:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Show event + input
+        run: |
+          echo "::notice::EVENT=${{ github.event_name }}"
+          echo "::notice::REF_NAME=${{ github.ref_name }}"
+          echo "::notice::INPUT_TAG=${{ inputs.tag }}"
