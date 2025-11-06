@@ -15,7 +15,7 @@ on:
 permissions:
   contents: write
 
-# No inputs.* here
+# keep top-level concurrency simple (no inputs.*)
 concurrency:
   group: release-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -33,6 +33,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Show effective values (sanity)
+        run: |
+          echo "EVENT=${{ github.event_name }}"
+          echo "REF_NAME=${{ github.ref_name }}"
+          echo "INPUT_TAG=${{ inputs.tag }}"
+          echo "TAG=${{ env.TAG }}"
 
       - name: If dispatch: checkout requested tag
         if: ${{ inputs.tag != '' }}
