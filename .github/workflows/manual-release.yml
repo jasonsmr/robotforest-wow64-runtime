@@ -1,0 +1,27 @@
+name: Manual Release (sanity)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build (e.g. v0.2.9). Leave empty to use current ref.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+# keep inputs.* OUT of concurrency
+concurrency:
+  group: manual-release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sanity:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Echo inputs
+        run: |
+          echo "EVENT=${{ github.event_name }}"
+          echo "REF_NAME=${{ github.ref_name }}"
+          echo "INPUT_TAG=${{ inputs.tag }}"
