@@ -76,7 +76,7 @@ jobs:
           path: |
             dist/**
             staging/**
-            scripts/**
+            scripts**
             **/*.log
           if-no-files-found: warn
 

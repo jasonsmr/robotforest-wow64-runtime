@@ -12,7 +12,6 @@ on:
 permissions:
   contents: write
 
-# Keep inputs.* out of concurrency
 concurrency:
   group: manual-release-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -22,3 +21,4 @@ jobs:
     uses: ./.github/workflows/release-core.yml
     with:
       tag: ${{ inputs.tag }}
+    secrets: inherit
