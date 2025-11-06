@@ -12,7 +12,6 @@ on:
 permissions:
   contents: write
 
-# Keep inputs.* out of concurrency to avoid odd caching/parse issues
 concurrency:
   group: release-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -26,21 +25,17 @@ jobs:
       DXVK_TAG: v2.4
       VKD3D_TAG: v2.13
     steps:
-      - name: Checkout repo (full)
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
 
       - name: If dispatch: checkout requested tag
         if: ${{ inputs.tag != '' }}
-        shell: bash
         run: |
           set -euo pipefail
           git fetch --tags --force
           git checkout "refs/tags/${{ env.TAG }}"
 
       - name: Install deps
-        shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update
@@ -56,7 +51,6 @@ jobs:
           key: upstream-${{ env.PROTON_TAG }}-${{ env.DXVK_TAG }}-${{ env.VKD3D_TAG }}
 
       - name: Fetch Proton/DXVK/vkd3d components
-        shell: bash
         env:
           PROTON_TAG: ${{ env.PROTON_TAG }}
           DXVK_TAG: ${{ env.DXVK_TAG }}
@@ -66,7 +60,6 @@ jobs:
           bash scripts/ci/fetch_components.sh
 
       - name: Run packer (bash) with tag
-        shell: bash
         env:
           RF_TAG: ${{ env.TAG }}
           GITHUB_REF_NAME: ${{ env.TAG }}
@@ -93,15 +86,13 @@ jobs:
     env:
       TAG: ${{ inputs.tag || github.ref_name }}
     steps:
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: rf-runtime-dist
           path: out
 
       - name: Locate runtime ZIP
         id: findzip
-        shell: bash
         run: |
           set -euo pipefail
           zip_path="$(ls -1 out/**/robotforest-wow64-runtime-${TAG}.zip 2>/dev/null | head -n1 || true)"
