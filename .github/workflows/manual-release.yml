@@ -1,35 +1,20 @@
-name: Manual Release (dispatcher)
+name: Minimal Dispatcher Sanity
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to build (e.g. v0.2.9). Leave empty to use current ref.'
+        description: 'Tag (optional)'
         required: false
         default: ''
         type: string
 
-permissions:
-  contents: write
-  actions: read
-
-concurrency:
-  group: manual-release-${{ github.run_id }}
-  cancel-in-progress: true
-
-jobs: 
-  precheck:
+jobs:
+  sanity:
     runs-on: ubuntu-latest
     steps:
-      - name: Echo inputs (sanity)
+      - name: Echo
         run: |
           echo "EVENT=${{ github.event_name }}"
-          echo "REF_NAME=${{ github.ref_name }}"
-          echo "INPUT_TAG=${{ inputs.tag }}"
-
-  call-core:
-    needs: precheck
-    uses: jasonsmr/robotforest-wow64-runtime/.github/workflows/release-core.yml@main
-    with:
-      tag: ${{ inputs.tag }}
-    secrets: inherit
+          echo "REF=${{ github.ref }}"
+          echo "TAG=${{ inputs.tag }}"
