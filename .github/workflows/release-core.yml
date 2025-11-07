@@ -21,10 +21,5 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "CORE TAG={${inputs.tag ||
-                                 github.ref_name}}"
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "CORE RELEASE step"
+      - run: echo "CORE TAG={${inputs.tag || {github.ref_name}}"
+B3
