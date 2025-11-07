@@ -17,19 +17,18 @@ concurrency:
   group: manual-release-${{ github.run_id }}
   cancel-in-progress: true
 
-jobs: 
+jobs:
   precheck:
     runs-on: ubuntu-latest
     steps:
-      - name: Echo inputs (sanity)
-        run: |
+      - run: |
           echo "EVENT=${{ github.event_name }}"
           echo "REF_NAME=${{ github.ref_name }}"
           echo "INPUT_TAG=${{ inputs.tag }}"
 
   call-core:
     needs: precheck
-    uses: ./github/workflows/release-core.yml
+    uses: ./.github/workflows/release-core.yml   # <-- note the leading "./"
     with:
       tag: ${{ inputs.tag }}
     secrets: inherit
