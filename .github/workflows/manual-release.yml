@@ -2,19 +2,9 @@ name: Minimal Dispatcher Sanity
 
 on:
   workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Tag (optional)'
-        required: false
-        default: ''
-        type: string
-
-jobs:
-  sanity:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Echo
-        run: |
-          echo "EVENT=${{ github.event_name }}"
-          echo "REF=${{ github.ref }}"
-          echo "TAG=${{ inputs.tag }}"
+schema:
+  jobs:
+    sanity:
+      runs-on: ubuntu-latest
+      steps:
+        - run: echo "HI!"
