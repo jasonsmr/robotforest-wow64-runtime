@@ -17,7 +17,7 @@ concurrency:
   group: manual-release-${{ github.run_id }}
   cancel-in-progress: true
 
-jobs:
+jobs: 
   precheck:
     runs-on: ubuntu-latest
     steps:
@@ -29,7 +29,6 @@ jobs:
 
   call-core:
     needs: precheck
-    # Use fully-qualified ref to dodge any relative-path edge cases.
     uses: jasonsmr/robotforest-wow64-runtime/.github/workflows/release-core.yml@main
     with:
       tag: ${{ inputs.tag }}
