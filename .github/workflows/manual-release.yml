@@ -11,9 +11,11 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
+# keep this simple for now to avoid weird cancellations
 concurrency:
-  group: manual-release-${{ github.workflow }}-${{ github.ref }}
+  group: manual-release-${{ github.run_id }}
   cancel-in-progress: true
 
 jobs:
