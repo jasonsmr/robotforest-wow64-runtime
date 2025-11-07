@@ -29,8 +29,7 @@ jobs:
 
   call-core:
     needs: precheck
-    # IMPORTANT: relative path so prod branch calls prod file
-    uses: ./.github/workflows/release-core.yml
+    uses: jasonsmr/robotforest-wow64-runtime/.github/workflows/release-core.yml@main
     with:
       tag: ${{ inputs.tag }}
     secrets: inherit

@@ -2,7 +2,7 @@ name: CI Guard (YAML sanity)
 
 on:
   pull_request:
-    branches: [ ci-prod-* , main ]
+    branches: [ ci-prod-*, main ]
     paths:
       - ".github/workflows/**/*.yml"
       - ".github/workflows/**/*.yaml"
