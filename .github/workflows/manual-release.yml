@@ -2,9 +2,9 @@ name: Minimal Dispatcher Sanity
 
 on:
   workflow_dispatch:
-schema:
-  jobs:
-    sanity:
-      runs-on: ubuntu-latest
-      steps:
-        - run: echo "HI!"
+
+jobs:
+  sanity:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "HI!"
