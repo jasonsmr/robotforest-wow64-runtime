@@ -1,0 +1,21 @@
+name: CI Guard (YAML sanity)
+
+on:
+  pull_request:
+    branches: [ ci-prod-* , main ]
+    paths:
+      - ".github/workflows/**/*.yml"
+      - ".github/workflows/**/*.yaml"
+
+permissions:
+  contents: read
+
+jobs:
+  yamllint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update -y
+          sudo apt-get install -y yamllint
+          yamllint .github/workflows
