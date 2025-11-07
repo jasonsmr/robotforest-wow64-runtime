@@ -1,10 +1,35 @@
-name: Minimal Dispatcher Sanity
+name: Manual Release (dispatcher)
 
 on:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build (e.g. v0.2.9). Leave empty to use current ref.'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: manual-release-${{ github.run_id }}
+  cancel-in-progress: true
 
 jobs:
-  sanity:
+  precheck:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "HI!"
+      - name: Echo inputs (sanity)
+        run: |
+          echo "EVENT=${{ github.event_name }}"
+          echo "REF_NAME=${{ github.ref_name }}"
+          echo "INPUT_TAG=${{ inputs.tag }}"
+
+  call-core:
+    needs: precheck
+    uses: ./.github/workflows/release-core.yml
+    with:
+      tag: ${{ inputs.tag }}
+    secrets: inherit

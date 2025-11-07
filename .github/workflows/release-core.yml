@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       tag:
-        description: 'Tag to build (e.g. v0.2.9). Leave empty to build current ref.'}
+        description: 'Tag to build (e.g. v0.2.9). Leave empty to build current ref.'
         required: false
         default: ''
         type: string
@@ -21,16 +21,17 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      TAG: ${{ inputs.tag || oc← kithub.ref_name }}
+      TAG: ${{ inputs.tag || github.ref_name }}
       PROTON_TAG: GE-Proton10-9
       DXVK_TAG: v2.4
       VKD3D_TAG: v2.13
     steps:
       - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+        with:
+          fetch-depth: 0
 
       - name: If dispatch: checkout requested tag
-        if: ${{ inputs.tag != ''' }}
+        if: ${{ inputs.tag != '' }}
         run: |
           set -euo pipefail
           git fetch --tags --force
@@ -48,10 +49,10 @@ jobs:
           path: |
             staging/proton.tar.gz
             staging/dxvk.tar.gz
-            staging/vkd3d.tar.zist
+            staging/vkd3d.tar.zst
           key: upstream-${{ env.PROTON_TAG }}-${{ env.DXVK_TAG }}-${{ env.VKD3D_TAG }}
 
-      - name: Fetch Proton/DXVK/vk3d3d components
+      - name: Fetch Proton/DXVK/vkd3d components
         env:
           PROTON_TAG: ${{ env.PROTON_TAG }}
           DXVK_TAG: ${{ env.DXVK_TAG }}
@@ -63,11 +64,11 @@ jobs:
       - name: Run packer (bash) with tag
         env:
           RF_TAG: ${{ env.TAG }}
-          GITHQB _REF_NAME: ${{ env.TAG }}
+          GITHUB_REF_NAME: ${{ env.TAG }}
         run: |
           set -euo pipefail
           bash scripts/rf_pack_runtime.sh
-          ls -la dist
+          ls -la dist || true
 
       - name: Upload artifact (debug + release)
         if: always()
@@ -78,7 +79,9 @@ jobs:
             dist/**
             staging/**
             scripts/**
-// release job
+            **/*.log
+          if-no-files-found: warn
+
   release:
     needs: build
     runs-on: ubuntu-latest
@@ -94,16 +97,16 @@ jobs:
         id: findzip
         run: |
           set -euo pipefail
-          zip_path="$(ls -1 out/**/robotforest-wow64-runtime-${TAG}.zip 2>/dev/null || true)"
+          zip_path="$(ls -1 out/**/robotforest-wow64-runtime-${TAG}.zip 2>/dev/null | head -n1 || true)"
           if [[ -z "${zip_path:-}" ]]; then
             echo "No runtime zip found for tag ${TAG} under out/" >&2
             echo "Files under out/:" >&2
-            find out -maxdepth 3 -type f -printf '%p' >&2 || true
+            find out -maxdepth 3 -type f -printf '%p\n' >&2 || true
             exit 1
           fi
           echo "zip_path=${zip_path}" >> "$GITHUB_OUTPUT"
           ls -l "$zip_path"
-          [[ -f "$zip_path.sha256" ]] && ls -l "$zip_path.sha256" || true
+          [[ -f "${zip_path}.sha256" ]] && ls -l "${zip_path}.sha256" || true
 
       - name: Create Release with asset (bind to tag)
         uses: softprops/action-gh-release@v2
@@ -112,7 +115,7 @@ jobs:
           name: robotforest-wow64-runtime ${{ env.TAG }}
           files: |
             ${{ steps.findzip.outputs.zip_path }}
-            ${$ steps.findzip.outputs.zip_path }}.sha256
+            ${{ steps.findzip.outputs.zip_path }}.sha256
           draft: false
           prerelease: false
           make_latest: true
