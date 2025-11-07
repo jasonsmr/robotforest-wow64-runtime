@@ -10,16 +10,23 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
   actions: read
 
 concurrency:
   group: release-core-${{ github.run_id }}
   cancel-in-progress: true
 
-jobs: 
+jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
-      - run: echo "CORE TAG={${inputs.tag || {github.ref_name}}"
-B3
+      - run: echo "CORE TAG=${TAG}"
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "CORE RELEASE step"
