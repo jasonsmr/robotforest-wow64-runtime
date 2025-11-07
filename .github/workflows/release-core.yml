@@ -27,7 +27,8 @@ jobs:
       VKD3D_TAG: v2.13
     steps:
       - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+        with:
+          fetch-depth: 0
 
       - name: If dispatch: checkout requested tag
         if: ${{ inputs.tag != '' }}
