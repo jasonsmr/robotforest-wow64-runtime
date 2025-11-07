@@ -17,7 +17,7 @@ concurrency:
   group: manual-release-${{ github.run_id }}
   cancel-in-progress: true
 
-jobs:
+jobs: 
   precheck:
     runs-on: ubuntu-latest
     steps:
@@ -29,7 +29,7 @@ jobs:
 
   call-core:
     needs: precheck
-    uses: ./.github/workflows/release-core.yml
+    uses: ./github/workflows/release-core.yml
     with:
       tag: ${{ inputs.tag }}
     secrets: inherit
