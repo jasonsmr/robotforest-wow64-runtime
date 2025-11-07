@@ -23,10 +23,12 @@ jobs:
     env:
       TAG: ${{ inputs.tag || github.ref_name }}
     steps:
-      - run: echo "CORE TAG=${TAG}"
+      - name: Echo (build)
+        run: echo "CORE TAG=${TAG}"
 
   release:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - run: echo "CORE RELEASE step"
+      - name: Echo (release)
+        run: echo "CORE RELEASE step"
