@@ -13,6 +13,7 @@ permissions:
   contents: write
   actions: read
 
+# unique per-run to avoid odd caching collisions
 concurrency:
   group: manual-release-${{ github.run_id }}
   cancel-in-progress: true
