@@ -1,23 +1,18 @@
+# ~/android/robotforest-wow64-runtime/scripts/rf_verify_runtime.sh
 #!/usr/bin/env bash
 set -euo pipefail
-DIST_DIR="${1:-dist}"
-shopt -s nullglob
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-fail=0
+fail() { echo "VERIFY: $*" >&2; exit 1; }
 
-want=( VERSION.txt bin/rf-sandbot overrides/dxvk overrides/vkd3d proton )
-for zip in "$DIST_DIR"/robotforest-wow64-runtime-*.zip; do
-  echo "[verify] $zip"
-  tmpdir="$(mktemp -d)"
-  unzip -q "$zip" -d "$tmpdir"
-  root="$tmpdir/robotforest-wow64-runtime"
-  for p in "${want[@]}"; do
-    if [[ ! -e "$root/$p" ]]; then
-      echo "::error file=$zip::missing $p"
-      fail=1
-    fi
-  done
-  rm -rf "$tmpdir"
-done
+[[ -f "$ROOT/VERSION" ]] || fail "VERSION missing"
+[[ -d "$ROOT/runtime/proton" ]] || fail "runtime/proton missing"
+[[ -x "$ROOT/sandbot/rf-sandbot.sh" ]] || fail "sandbot/rf-sandbot.sh missing/executable"
 
-exit $fail
+DXVK_OK="$(find "$ROOT/runtime" -maxdepth 1 -type d -name "dxvk-* | head -n1")"
+[[ -n "$DXVK_OK" ]] || fail "dxvk dir missing"
+
+VKD3D_OK="$(find "$ROOT/runtime" -maxdepth 1 -type d -name "vkd3d-proton-* | head -n1")"
+[[ -n "$VKD3D_OK" ]] || fail "vkd3d-proton dir missing"
+
+echo "VERIFY: OK"

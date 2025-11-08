@@ -1,26 +1,45 @@
-name: RF Runtime Smoke
+# ~/android/robotforest-wow64-runtime/.github/workflows/smoke-runtime.yml
+name: Smoke Runtime
 
 on:
-  pull_request:
-    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Run smoke verify for this tag (empty = current ref)
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
-  actions: read
 
 jobs:
-  smoke:
-    runs-on: ubuntu-24.04
+  build:
+    uses: ./.github/workflows/release-core.yml
+    with:
+      tag: ${{ inputs.tag }}
+
+  verify:
+    needs: build
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install deps
+      - uses: actions/download-artifact@v4
+        with:
+          name: rf-runtime-dist
+          path: out
+      - name: Find runtime zip
+        id: z
         run: |
-          sudo apt-get update
-          sudo apt-get install -y zip zstd jq file
-
-      - name: Touch mock dist + verify
+          set -euo pipefail
+          f="$(ls -1 out/**/robotforest-wow64-runtime-*.zip | head -n1)"
+          echo "zip=$f" >> "$GITHUB_OUTPUT"
+      - name: Unzip
         run: |
-          mkdir -p dist
-          echo "mock" > dist/robotforest-wow64-runtime-test.zip
-          bash scripts/rf_verify_runtime.sh dist || true
+          set -euo pipefail
+          mkdir -p run
+          unzip -q "${{ steps.z.outputs.zip }}" -d run
+      - name: Verify
+        run: |
+          set -euo pipefail
+          RDIR="$(find run -maxdepth 1 -type d -name 'robotforest-wow64-runtime-*' | head -n1)"
+          bash "$RDIR/scripts/rf_verify_runtime.sh"

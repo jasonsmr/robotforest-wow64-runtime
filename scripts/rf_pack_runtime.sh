@@ -1,55 +1,41 @@
+# ~/android/robotforest-wow64-runtime/scripts/rf_pack_runtime.sh
 #!/usr/bin/env bash
 set -euo pipefail
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-STAGING="$ROOT/staging"
-DIST="$ROOT/dist"
-TAG="${RF_TAG:-${GITHUB_REF_NAME:-dev}}"
+. "$ROOT/scripts/ci/pins.env"
 
-mkdir -p "$DIST" "$ROOT/runtime"
+TAG="${RF_TAG:-${DEFAULT_TAG}}"
 
-# Extract staged components
-work="$ROOT/.work"
-rm -rf "$work"; mkdir -p "$work"
+OUT="$ROOT/dist/robotforest-wow64-runtime-${TAG}"
+ZIP="$ROOT/dist/robotforest-wow64-runtime-${TAG}.zip"
 
-echo "[extract] Proton"
-tar -C "$work" -xf "$STAGING/proton.tar.gz"
-PROTON_DIR="$(find "$work" -maxdepth 1 -type d -name 'Proton-*' | head -n1)"
+rm -rf "$OUT"
+mkdir -p "$OUT" "$ROOT/dist" "$OUT/runtime" "$OUT/tools" "$OUT/scripts" "$OUT/sandbot"
 
-echo "[extract] DXVK"
-tar -C "$work" -xf "$STAGING/dxvk.tar.gz"
+echo "[pack] Unpack Proton-GE"
+tar -xf "$ROOT/staging/proton.tar.gz" -C "$OUT/runtime"
+# Proton unpack name varies; normalize symlink 'proton'
+PROTON_DIR="$(find "$OUT/runtime" -maxdepth 1 -type d -name "Proton-*")"
+ln -s "$(basename "$PROTON_DIR")" "$OUT/runtime/proton"
 
-echo "[extract] VKD3D"
-tar -C "$work" --use-compress-program=unzstd -xf "$STAGING/vkd3d.tar.zst"
+echo "[pack] Unpack DXVK"
+tar -xf "$ROOT/staging/dxvk.tar.gz" -C "$OUT/runtime"
+DXVK_DIR="$(find "$OUT/runtime" -maxdepth 1 -type d -name "dxvk-*")"
 
-# Runtime layout
-RUNTIME="$ROOT/runtime/robotforest-wow64-runtime"
-rm -rf "$RUNTIME"; mkdir -p "$RUNTIME"
+echo "[pack] Unpack vkd3d-proton"
+unzstd -c "$ROOT/staging/vkd3d.tar.zst" | tar -xf - -C "$OUT/runtime"
+VKD3D_DIR="$(find "$OUT/runtime" -maxdepth 1 -type d -name "vkd3d-proton-*")"
 
-# Copy Proton (as core)
-cp -a "$PROTON_DIR" "$RUNTIME/proton"
+echo "[pack] Copy sandbot + helpers"
+install -Dm755 "$ROOT/scripts/sandbot/rf-sandbot.sh" "$OUT/sandbot/rf-sandbot.sh"
+install -Dm755 "$ROOT/scripts/rf_verify_runtime.sh" "$OUT/scripts/rf_verify_runtime.sh"
 
-# Minimal DXVK + VKD3D drop-ins (keep it simple; full mapping can be added later)
-mkdir -p "$RUNTIME/overrides/dxvk" "$RUNTIME/overrides/vkd3d"
-cp -a "$work"/dxvk-*/* "$RUNTIME/overrides/dxvk/"
-cp -a "$work"/vkd3d-proton-*/* "$RUNTIME/overrides/vkd3d/"
+echo "[pack] Write VERSION"
+echo "$TAG" > "$OUT/VERSION"
 
-# Sandbot launcher (portable)
-install -Dm755 "$ROOT/scripts/sandbot/rf-sandbot.sh" "$RUNTIME/bin/rf-sandbot"
+echo "[pack] zip"
+(cd "$OUT/.." && zip -qr9 "$ZIP" "$(basename "$OUT")")
+sha256sum "$ZIP" | tee "${ZIP}.sha256"
 
-# Version manifest
-cat > "$RUNTIME/VERSION.txt" <<EOF
-RobotForest WOW64 Runtime
-Tag: ${TAG}
-Proton: $(basename "$PROTON_DIR")
-DXVK: $(basename "$(<"$STAGING/dxvk.tar.gz" tar -tzf - 2>/dev/null | head -n1)" 2>/dev/null || echo "$(<"$STAGING/dxvk.tar.gz" tar -tzf - 2>/dev/null | head -n1)")
-VKD3D: $(basename "$(<"$STAGING/vkd3d.tar.zst" tar -tI zstd -f - 2>/dev/null | head -n1)" 2>/dev/null || true)
-Built: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
-EOF
-
-# Zip it
-OUT_ZIP="$DIST/robotforest-wow64-runtime-${TAG}.zip"
-rm -f "$OUT_ZIP" "$OUT_ZIP.sha256"
-( cd "$ROOT/runtime" && zip -r9 "$OUT_ZIP" "robotforest-wow64-runtime" )
-sha256sum "$OUT_ZIP" | tee "$OUT_ZIP.sha256"
-
-echo "[packed] $OUT_ZIP"
+echo "[pack] done: $ZIP"

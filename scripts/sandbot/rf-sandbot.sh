@@ -1,94 +1,120 @@
+# ~/android/robotforest-wow64-runtime/scripts/sandbot/rf-sandbot.sh
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage:
-#   rf-sandbot --runtime-zip /path/to/robotforest-wow64-runtime-<tag>.zip \
-#              --appid 9200 \
-#              [--username <steam_user>] [--password <steam_pass>] [--dir /games]
-#
-# Notes:
-# - If username/password omitted, uses anonymous (only works for some appids).
-# - Requires: bash, unzip, curl or aria2c, tar, gzip, zstd; on desktop Linux with steam deps.
+# Resolve runtime root (script may be invoked from anywhere)
+SDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SDIR/../.." && pwd)"
 
-RUNTIME_ZIP=""
-APPID=""
-STEAM_USER=""
-STEAM_PASS=""
-GAMES_DIR="${HOME}/Games"
-PREFIX_TAG="local"
-STEAMCMD_URL="https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz"
+TOOLS="$ROOT/tools"
+RUNTIME="$ROOT/runtime"
+PROTON="$RUNTIME/proton"       # symlink created by packer
+STEAMDIR="$ROOT/steam"         # where steamcmd will live and install content
+STEAMCMD="$TOOLS/steamcmd/steamcmd.sh"
 
-die(){ echo "ERR: $*" >&2; exit 1; }
+mkdir -p "$TOOLS" "$STEAMDIR"
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --runtime-zip) RUNTIME_ZIP="$2"; shift 2;;
-    --appid)       APPID="$2"; shift 2;;
-    --username)    STEAM_USER="$2"; shift 2;;
-    --password)    STEAM_PASS="$2"; shift 2;;
-    --dir)         GAMES_DIR="$2"; shift 2;;
-    --prefix-tag)  PREFIX_TAG="$2"; shift 2;;
-    *) die "Unknown arg: $1";;
-  esac
-done
+usage() {
+  cat <<EOF
+rf-sandbot.sh — Steam helper
 
-[[ -f "$RUNTIME_ZIP" ]] || die "--runtime-zip not found"
-[[ -n "${APPID}" ]]     || die "--appid required"
+Subcommands:
+  login                    -> prompts or uses env STEAM_USERNAME / STEAM_PASSWORD (/ STEAM_GUARD_CODE)
+  list                     -> prints owned apps (app id and name)
+  install <appid>         -> installs game to $STEAMDIR/steamapps
+  run <appid> [exe_rel]   -> runs installed app via Proton; exe_rel is relative exe path under game dir
+  where <appid>           -> prints resolved game content path
 
-TAG="$(basename "$RUNTIME_ZIP" | sed -E 's/^robotforest-wow64-runtime-(.+)\.zip$/\1/')"
-BASE="${XDG_DATA_HOME:-$HOME/.local/share}/robotforest/${TAG}"
-RUNTIME_DIR="$BASE/runtime"
-STEAMCMD_DIR="$BASE/steamcmd"
-WINEPREFIX="$BASE/prefix-${PREFIX_TAG}"
+Env (optional):
+  STEAM_USERNAME, STEAM_PASSWORD, STEAM_GUARD_CODE
+  STEAM_FORCE_CLI_LOGIN=1  -> force interactive prompt even if env present
+EOF
+}
 
-mkdir -p "$BASE" "$GAMES_DIR"
-
-# Unpack runtime once
-if [[ ! -d "$RUNTIME_DIR/robotforest-wow64-runtime" ]]; then
-  mkdir -p "$RUNTIME_DIR"
-  unzip -q "$RUNTIME_ZIP" -d "$RUNTIME_DIR"
-fi
-
-PROTON_DIR="$RUNTIME_DIR/robotforest-wow64-runtime/proton"
-[[ -d "$PROTON_DIR" ]] || die "Proton directory missing in runtime"
-
-# SteamCMD bootstrap
-if [[ ! -x "$STEAMCMD_DIR/steamcmd.sh" ]]; then
-  mkdir -p "$STEAMCMD_DIR"
-  cd "$STEAMCMD_DIR"
-  if command -v aria2c >/dev/null 2>&1; then
-    aria2c -x16 -s16 -k1M "$STEAMCMD_URL" -o steamcmd_linux.tar.gz
-  else
-    curl -fL "$STEAMCMD_URL" -o steamcmd_linux.tar.gz
+need_steamcmd() {
+  if [[ ! -x "$STEAMCMD" ]]; then
+    echo "[steamcmd] downloading…"
+    mkdir -p "$TOOLS/steamcmd"
+    curl -fL "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz" \
+      -o "$TOOLS/steamcmd/steamcmd_linux.tar.gz"
+    (cd "$TOOLS/steamcmd" && tar -xf steamcmd_linux.tar.gz)
   fi
-  tar -xzf steamcmd_linux.tar.gz
-fi
+}
 
-echo "[info] SteamCMD at $STEAMCMD_DIR"
-echo "[info] Proton at $PROTON_DIR"
-echo "[info] Prefix at $WINEPREFIX"
+steam_login() {
+  need_steamcmd
+  local u="${STEAM_USERNAME:-}"
+  local p="${STEAM_PASSWORD:-}"
+  local g="${STEAM_GUARD_CODE:-}"
 
-# Install/update app
-LOGIN_OPTS="+login ${STEAM_USER:-anonymous}"
-if [[ -n "$STEAM_USER" && -n "$STEAM_PASS" ]]; then
-  LOGIN_OPTS="+login ${STEAM_USER} ${STEAM_PASS}"
-fi
+  if [[ -z "${STEAM_FORCE_CLI_LOGIN:-}" && -n "$u" && -n "$p" ]]; then
+    echo "[login] using env creds for $u"
+    # Guard code passed via '+set_steam_guard_code'
+    "$STEAMCMD" +login "$u" "$p" ${g:+ "+set_steam_guard_code" "$g"} +quit
+  else
+    echo "[login] interactive"
+    "$STEAMCMD"
+  fi
+}
 
-"$STEAMCMD_DIR/steamcmd.sh" \
-  ${LOGIN_OPTS} \
-  +force_install_dir "${GAMES_DIR}/app_${APPID}" \
-  +app_update "${APPID}" validate \
-  +quit
+steam_list() {
+  need_steamcmd
+  echo "[list] owned apps (requires prior login)"
+  "$STEAMCMD" +login "${STEAM_USERNAME:-anonymous}" ${STEAM_PASSWORD:+ "$STEAM_PASSWORD"} +app_info_print 0 +quit | \
+    sed -n 's/^\s\+"\([0-9]\+\)".*$/\1/p' | head -n 200
+  echo "Tip: For a readable list, consider 'steamctl' or web APIs later."
+}
 
-# Run the app using Proton's wine wrapper
-export STEAM_COMPAT_CLIENT_INSTALL_PATH="$STEAMCMD_DIR"   # loose, but ok for local
-export STEAM_COMPAT_DATA_PATH="$WINEPREFIX"
-export WINEPREFIX="$WINEPREFIX"
+steam_install() {
+  local appid="$1"
+  [[ -n "$appid" ]] || { echo "usage: install <appid>"; exit 2; }
+  need_steamcmd
+  echo "[install] appid=$appid"
+  "$STEAMCMD" +login "$STEAM_USERNAME" "$STEAM_PASSWORD" ${STEAM_GUARD_CODE:+ "+set_steam_guard_code" "$STEAM_GUARD_CODE"} \
+             +force_install_dir "$STEAMDIR/steamapps/common/$appid" \
+             +app_update "$appid" validate +quit
+}
 
-# DXVK/VKD3D overrides would be added here if needed per title
+game_path() {
+  local appid="$1"
+  local d="$STEAMDIR/steamapps/common/$appid"
+  [[ -d "$d" ]] || { echo ""; return 1; }
+  echo "$d"
+}
 
-GAME_EXE="$(find "${GAMES_DIR}/app_${APPID}" -maxdepth 3 -type f -iname '*.exe' | head -n1 || true)"
-[[ -n "$GAME_EXE" ]] || die "Could not locate a .exe in app_${APPID}; please set manually."
+steam_run() {
+  local appid="$1"; shift || true
+  local rel="${1:-}"
 
-echo "[run] ${GAME_EXE}"
-exec "${PROTON_DIR}/files/bin/wine" "${GAME_EXE}"
+  local dir
+  dir="$(game_path "$appid")" || { echo "Game not installed: $appid"; exit 3; }
+
+  # Proton env wiring
+  export STEAM_COMPAT_CLIENT_INSTALL_PATH="$ROOT"
+  export STEAM_COMPAT_DATA_PATH="$ROOT/compatdata/$appid"
+  mkdir -p "$STEAM_COMPAT_DATA_PATH"
+
+  # Guess exe if not provided (basic heuristic)
+  local exe
+  if [[ -n "$rel" ]]; then
+    exe="$dir/$rel"
+  else
+    exe="$(find "$dir" -maxdepth 2 -type f -iname "*.exe" | head -n1 || true)"
+  fi
+
+  [[ -n "$exe" && -f "$exe" ]] || { echo "Could not find a .exe. Provide rel path: rf-sandbot.sh run $appid <path/to/Game.exe>"; exit 4; }
+
+  echo "[run] $exe via Proton"
+  # Proton's entry point
+  "$PROTON/proton" run "$exe"
+}
+
+case "${1:-}" in
+  login)   steam_login ;;
+  list)    steam_list ;;
+  install) shift; steam_install "${1:-}" ;;
+  where)   shift; game_path "${1:-}" ;;
+  run)     shift; steam_run "${1:-}" "${2:-}" ;;
+  ""|-h|--help) usage ;;
+  *) echo "unknown command: $1"; usage; exit 1 ;;
+esac

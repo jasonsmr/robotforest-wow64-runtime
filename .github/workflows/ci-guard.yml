@@ -1,21 +1,29 @@
-name: CI Guard (YAML sanity)
+# ~/android/robotforest-wow64-runtime/.github/workflows/ci-guard.yml
+name: CI Guard
 
 on:
   pull_request:
-    branches: [ ci-prod-*, main ]
-    paths:
-      - ".github/workflows/**/*.yml"
-      - ".github/workflows/**/*.yaml"
+  push:
+    branches: [ "ci/*", "main" ]
 
 permissions:
   contents: read
 
 jobs:
-  yamllint:
+  lint-yaml:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: |
-          sudo apt-get update -y
-          sudo apt-get install -y yamllint
-          yamllint .github/workflows
+      - name: yamllint (workflows only)
+        run: |
+          sudo apt-get update && sudo apt-get install -y yamllint
+          yamllint -d "{extends: default, rules: {line-length: {max: 140}}}" .github/workflows
+
+  no-tabs-no-crlf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fail on tabs/CRLF
+        run: |
+          ! git grep -nP "\t" -- . || (echo "Tabs found" && git grep -nP "\t" -- . && exit 1)
+          ! git grep -nI $'\r' -- . || (echo "CRLF found" && git grep -nI $'\r' -- . && exit 1)
