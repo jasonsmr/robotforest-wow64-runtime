@@ -1,31 +1,55 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# If RF_TAG (or GITHUB_REF_NAME) looks like vX.Y.Z, use it; else fall back to timestamp.
-TAG="${RF_TAG:-${GITHUB_REF_NAME:-}}"
-if [[ "${TAG:-}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  BASENAME="robotforest-wow64-runtime-${TAG}.zip"
-else
-  stamp="$(date -u +%Y%m%d-%H%M%S)"
-  BASENAME="robotforest-wow64-runtime-${stamp}.zip"
-fi
-
-ROOT="$(pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+STAGING="$ROOT/staging"
 DIST="$ROOT/dist"
-mkdir -p "$DIST"
-OUT="$DIST/$BASENAME"
+TAG="${RF_TAG:-${GITHUB_REF_NAME:-dev}}"
 
-echo "[pack] assembling -> $OUT"
-# Include whatever your runtime needs:
-zip -r9 "$OUT" \
-  scripts/ \
-  staging/ \
-  README.md 2>/dev/null || true
+mkdir -p "$DIST" "$ROOT/runtime"
 
-echo "[pack] wrote $OUT"
-ls -l "$DIST"
+# Extract staged components
+work="$ROOT/.work"
+rm -rf "$work"; mkdir -p "$work"
 
-# --- integrity ---
-if command -v sha256sum >/dev/null 2>&1; then
-  sha256sum "$OUT" > "$OUT.sha256"
-  echo "[pack] wrote $OUT.sha256"
-fi
+echo "[extract] Proton"
+tar -C "$work" -xf "$STAGING/proton.tar.gz"
+PROTON_DIR="$(find "$work" -maxdepth 1 -type d -name 'Proton-*' | head -n1)"
+
+echo "[extract] DXVK"
+tar -C "$work" -xf "$STAGING/dxvk.tar.gz"
+
+echo "[extract] VKD3D"
+tar -C "$work" --use-compress-program=unzstd -xf "$STAGING/vkd3d.tar.zst"
+
+# Runtime layout
+RUNTIME="$ROOT/runtime/robotforest-wow64-runtime"
+rm -rf "$RUNTIME"; mkdir -p "$RUNTIME"
+
+# Copy Proton (as core)
+cp -a "$PROTON_DIR" "$RUNTIME/proton"
+
+# Minimal DXVK + VKD3D drop-ins (keep it simple; full mapping can be added later)
+mkdir -p "$RUNTIME/overrides/dxvk" "$RUNTIME/overrides/vkd3d"
+cp -a "$work"/dxvk-*/* "$RUNTIME/overrides/dxvk/"
+cp -a "$work"/vkd3d-proton-*/* "$RUNTIME/overrides/vkd3d/"
+
+# Sandbot launcher (portable)
+install -Dm755 "$ROOT/scripts/sandbot/rf-sandbot.sh" "$RUNTIME/bin/rf-sandbot"
+
+# Version manifest
+cat > "$RUNTIME/VERSION.txt" <<EOF
+RobotForest WOW64 Runtime
+Tag: ${TAG}
+Proton: $(basename "$PROTON_DIR")
+DXVK: $(basename "$(<"$STAGING/dxvk.tar.gz" tar -tzf - 2>/dev/null | head -n1)" 2>/dev/null || echo "$(<"$STAGING/dxvk.tar.gz" tar -tzf - 2>/dev/null | head -n1)")
+VKD3D: $(basename "$(<"$STAGING/vkd3d.tar.zst" tar -tI zstd -f - 2>/dev/null | head -n1)" 2>/dev/null || true)
+Built: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+EOF
+
+# Zip it
+OUT_ZIP="$DIST/robotforest-wow64-runtime-${TAG}.zip"
+rm -f "$OUT_ZIP" "$OUT_ZIP.sha256"
+( cd "$ROOT/runtime" && zip -r9 "$OUT_ZIP" "robotforest-wow64-runtime" )
+sha256sum "$OUT_ZIP" | tee "$OUT_ZIP.sha256"
+
+echo "[packed] $OUT_ZIP"

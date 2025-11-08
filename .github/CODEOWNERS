@@ -1,0 +1,3 @@
+# Require review by you on workflow and packaging changes
+/.github/workflows/*   @jasonsmr
+/scripts/**            @jasonsmr

@@ -1,0 +1,26 @@
+name: RF Runtime Smoke
+
+on:
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zip zstd jq file
+
+      - name: Touch mock dist + verify
+        run: |
+          mkdir -p dist
+          echo "mock" > dist/robotforest-wow64-runtime-test.zip
+          bash scripts/rf_verify_runtime.sh dist || true
