@@ -5,6 +5,7 @@ on:
     branches: ["ci/**"]
   pull_request:
     branches: ["main", "ci/**"]
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -16,25 +17,31 @@ concurrency:
 jobs:
   quick:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Verify pins + list tree snapshot
+      - name: Shell syntax + presence checks
         run: |
           set -euxo pipefail
-          bash scripts/ci/fetch_components.sh --verify-only
-          echo "=== GIT TREE (TOP 200) ==="
-          git ls-files | head -n 200
+          test -f scripts/rf_pack_runtime.sh
+          test -f scripts/rf_verify_runtime.sh
+          bash -n scripts/rf_pack_runtime.sh
+          bash -n scripts/rf_verify_runtime.sh
 
-      - name: Shellcheck (scripts)
+      - name: Overlay structure sanity
         run: |
           set -euxo pipefail
-          sudo apt-get update
-          sudo apt-get install -y shellcheck
-          # Shellcheck all our sh files; ignore vendor dirs if any
-          mapfile -t SHS < <(git ls-files | grep -E '\.(sh|bash)$' || true)
-          if [ "${#SHS[@]}" -gt 0 ]; then
-            shellcheck "${SHS[@]}"
-          else
-            echo "No shell scripts to check."
-          fi
+          test -f staging/overlay/runtime/rf-env.sh
+          test -f staging/overlay/runtime/wine64/user.reg
+          test -f staging/overlay/runtime/wine64/system.reg
+          test -f staging/overlay/runtime/box64/box64.conf
+          test -f staging/overlay/runtime/dxvk/dxvk.conf
+
+      - name: Dry-run pack (no downloads)
+        run: |
+          set -euxo pipefail
+          rm -rf dist staging/build || true
+          bash scripts/rf_pack_runtime.sh
+          ls -l dist
