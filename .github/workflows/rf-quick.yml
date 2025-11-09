@@ -18,9 +18,17 @@ jobs:
   quick:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      DEBIAN_FRONTEND: noninteractive
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Tools
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y zstd ca-certificates curl unzip
 
       - name: Sanity checks + dry pack
         run: |
