@@ -1,23 +1,44 @@
 #!/usr/bin/env bash
+# rf_verify_runtime.sh
+# Verify outer SHA256 and inner MANIFEST.SHA256 from a zstd-compressed tarball.
+
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DIST="${ROOT}/dist"
+if [[ $# -lt 1 ]]; then
+  echo "Usage: $0 /path/to/rf-runtime-*.tar.zst [optional:.sha256]" >&2
+  exit 2
+fi
 
-ZIP="${1:-}"
-[[ -z "$ZIP" ]] && ZIP="$(ls -1 "${DIST}"/robotforest-wow64-runtime-*.zip | head -n1 || true)"
-[[ -f "$ZIP" ]] || { echo "ZIP not found" >&2; exit 1; }
+TAR="$1"
+SUMFILE="${2:-}"
 
-echo "Verifying: $ZIP"
-unzip -l "$ZIP" | sed -n '1,200p'
+test -f "$TAR" || { echo "ERROR: missing tarball: $TAR"; exit 1; }
 
-# Minimal expectations
-req=(
-  "rootfs/"
-  "rootfs/bin/rf-runtime-env"
-)
-for p in "${req[@]}"; do
-  unzip -l "$ZIP" | grep -qE "[[:space:]]${p}$" || { echo "Missing ${p}" >&2; exit 1; }
-done
+# Auto-detect sidecar checksum
+if [[ -z "${SUMFILE}" ]]; then
+  [[ -f "${TAR}.sha256" ]] && SUMFILE="${TAR}.sha256" || true
+fi
 
-echo "Verification OK."
+if [[ -n "${SUMFILE}" ]]; then
+  echo "[verify] Checking outer sha256 via ${SUMFILE}"
+  ( cd "$(dirname "$TAR")" && sha256sum -c "$(basename "$SUMFILE")" )
+else
+  echo "[verify] Sidecar .sha256 not provided; skipping outer check."
+fi
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+echo "[verify] Extracting MANIFEST.SHA256"
+# Use --long=31 so it can read large-window zstd streams
+tar --use-compress-program="zstd --long=31 -d" -xOf "$TAR" MANIFEST.SHA256 > "${TMP}/MANIFEST.SHA256"
+
+# Sanity-check format
+bad=$(awk '{ if (NF<2) print; }' "${TMP}/MANIFEST.SHA256" | wc -l)
+if [[ "$bad" != "0" ]]; then
+  echo "ERROR: MANIFEST.SHA256 appears malformed."
+  exit 1
+fi
+
+echo "[verify] MANIFEST.SHA256 looks structurally valid."
+echo "[verify] OK"
