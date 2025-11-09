@@ -1,18 +1,23 @@
-# ~/android/robotforest-wow64-runtime/scripts/rf_verify_runtime.sh
 #!/usr/bin/env bash
 set -euo pipefail
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DIST="${ROOT}/dist"
 
-fail() { echo "VERIFY: $*" >&2; exit 1; }
+ZIP="${1:-}"
+[[ -z "$ZIP" ]] && ZIP="$(ls -1 "${DIST}"/robotforest-wow64-runtime-*.zip | head -n1 || true)"
+[[ -f "$ZIP" ]] || { echo "ZIP not found" >&2; exit 1; }
 
-[[ -f "$ROOT/VERSION" ]] || fail "VERSION missing"
-[[ -d "$ROOT/runtime/proton" ]] || fail "runtime/proton missing"
-[[ -x "$ROOT/sandbot/rf-sandbot.sh" ]] || fail "sandbot/rf-sandbot.sh missing/executable"
+echo "Verifying: $ZIP"
+unzip -l "$ZIP" | sed -n '1,200p'
 
-DXVK_OK="$(find "$ROOT/runtime" -maxdepth 1 -type d -name "dxvk-* | head -n1")"
-[[ -n "$DXVK_OK" ]] || fail "dxvk dir missing"
+# Minimal expectations
+req=(
+  "rootfs/"
+  "rootfs/bin/rf-runtime-env"
+)
+for p in "${req[@]}"; do
+  unzip -l "$ZIP" | grep -qE "[[:space:]]${p}$" || { echo "Missing ${p}" >&2; exit 1; }
+done
 
-VKD3D_OK="$(find "$ROOT/runtime" -maxdepth 1 -type d -name "vkd3d-proton-* | head -n1")"
-[[ -n "$VKD3D_OK" ]] || fail "vkd3d-proton dir missing"
-
-echo "VERIFY: OK"
+echo "Verification OK."

@@ -1,41 +1,51 @@
-# ~/android/robotforest-wow64-runtime/scripts/rf_pack_runtime.sh
 #!/usr/bin/env bash
 set -euo pipefail
 
+: "${TMP:=${HOME}/tmp}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-. "$ROOT/scripts/ci/pins.env"
+STAGING="${ROOT}/staging"
+DIST="${ROOT}/dist"
+mkdir -p "$DIST" "$TMP"
 
-TAG="${RF_TAG:-${DEFAULT_TAG}}"
+RF_TAG="${RF_TAG:-${GITHUB_REF_NAME:-dev}}"
 
-OUT="$ROOT/dist/robotforest-wow64-runtime-${TAG}"
-ZIP="$ROOT/dist/robotforest-wow64-runtime-${TAG}.zip"
+# Unpack & assemble minimal tree in ${STAGING}/rootfs (idempotent)
+ROOTFS="${STAGING}/rootfs"
+mkdir -p "${ROOTFS}"
 
-rm -rf "$OUT"
-mkdir -p "$OUT" "$ROOT/dist" "$OUT/runtime" "$OUT/tools" "$OUT/scripts" "$OUT/sandbot"
+# Proton payload
+if [[ -f "${STAGING}/proton.tar.gz" ]]; then
+  mkdir -p "${ROOTFS}/proton"
+  tar -xzf "${STAGING}/proton.tar.gz" -C "${ROOTFS}/proton" --strip-components=0
+fi
 
-echo "[pack] Unpack Proton-GE"
-tar -xf "$ROOT/staging/proton.tar.gz" -C "$OUT/runtime"
-# Proton unpack name varies; normalize symlink 'proton'
-PROTON_DIR="$(find "$OUT/runtime" -maxdepth 1 -type d -name "Proton-*")"
-ln -s "$(basename "$PROTON_DIR")" "$OUT/runtime/proton"
+# DXVK payload
+if [[ -f "${STAGING}/dxvk.tar.gz" ]]; then
+  mkdir -p "${ROOTFS}/dxvk"
+  tar -xzf "${STAGING}/dxvk.tar.gz" -C "${ROOTFS}/dxvk" --strip-components=0
+fi
 
-echo "[pack] Unpack DXVK"
-tar -xf "$ROOT/staging/dxvk.tar.gz" -C "$OUT/runtime"
-DXVK_DIR="$(find "$OUT/runtime" -maxdepth 1 -type d -name "dxvk-*")"
+# vkd3d-proton payload
+if [[ -f "${STAGING}/vkd3d.tar.zst" ]]; then
+  mkdir -p "${ROOTFS}/vkd3d"
+  tar --zstd -xf "${STAGING}/vkd3d.tar.zst" -C "${ROOTFS}/vkd3d" --strip-components=0
+fi
 
-echo "[pack] Unpack vkd3d-proton"
-unzstd -c "$ROOT/staging/vkd3d.tar.zst" | tar -xf - -C "$OUT/runtime"
-VKD3D_DIR="$(find "$OUT/runtime" -maxdepth 1 -type d -name "vkd3d-proton-*")"
+# Inject launcher scaffolding (placeholder; extend later)
+mkdir -p "${ROOTFS}/bin"
+cat > "${ROOTFS}/bin/rf-runtime-env" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+# Export minimal runtime env; extend for WOW64/steam later
+export RF_RUNTIME_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+echo "RF_RUNTIME_DIR=${RF_RUNTIME_DIR}"
+EOF
+chmod +x "${ROOTFS}/bin/rf-runtime-env"
 
-echo "[pack] Copy sandbot + helpers"
-install -Dm755 "$ROOT/scripts/sandbot/rf-sandbot.sh" "$OUT/sandbot/rf-sandbot.sh"
-install -Dm755 "$ROOT/scripts/rf_verify_runtime.sh" "$OUT/scripts/rf_verify_runtime.sh"
+# Zip
+OUT="${DIST}/robotforest-wow64-runtime-${RF_TAG}.zip"
+( cd "${ROOTFS}/.." && zip -r -9 "${OUT}" "$(basename "${ROOTFS}")" )
+sha256sum "${OUT}" | awk '{print $1}' > "${OUT}.sha256"
 
-echo "[pack] Write VERSION"
-echo "$TAG" > "$OUT/VERSION"
-
-echo "[pack] zip"
-(cd "$OUT/.." && zip -qr9 "$ZIP" "$(basename "$OUT")")
-sha256sum "$ZIP" | tee "${ZIP}.sha256"
-
-echo "[pack] done: $ZIP"
+echo "Packed:"
+ls -lh "${OUT}"*

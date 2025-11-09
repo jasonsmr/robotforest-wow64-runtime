@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       tag:
-        description: 'Tag to build (optional). Empty = current ref.'
+        description: 'Tag (optional). Empty builds current ref.'
         required: false
         default: ''
         type: string
@@ -17,71 +17,66 @@ concurrency:
   group: release-core-${{ github.run_id }}
   cancel-in-progress: true
 
+env:
+  # single source of truth
+  PROTON_TAG: ${{ vars.PROTON_TAG || 'GE-Proton10-9' }}
+  DXVK_TAG:   ${{ vars.DXVK_TAG   || 'v2.4' }}
+  VKD3D_TAG:  ${{ vars.VKD3D_TAG  || 'v2.13' }}
+
 jobs:
   build:
-    name: Build runtime
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     env:
       TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
 
-      - name: If dispatch: checkout tag
+      - name: If dispatch/tag: checkout exact tag
         if: ${{ inputs.tag != '' }}
         run: |
           set -euo pipefail
           git fetch --tags --force
           git checkout "refs/tags/${TAG}"
 
-      - name: Install build deps
+      - name: Install deps
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y zip zstd jq file aria2 pv
 
-      - name: Load upstream pins
-        id: pins
+      - name: Source pins.env if present (overrides vars)
         run: |
           set -euo pipefail
-          . scripts/ci/pins.env
-          echo "PROTON_TAG=$PROTON_TAG" >> "$GITHUB_OUTPUT"
-          echo "DXVK_TAG=$DXVK_TAG"     >> "$GITHUB_OUTPUT"
-          echo "VKD3D_TAG=$VKD3D_TAG"   >> "$GITHUB_OUTPUT"
+          if [[ -f scripts/ci/pins.env ]]; then
+            source scripts/ci/pins.env
+            echo "PROTON_TAG=$PROTON_TAG" >> $GITHUB_ENV
+            echo "DXVK_TAG=$DXVK_TAG"     >> $GITHUB_ENV
+            echo "VKD3D_TAG=$VKD3D_TAG"   >> $GITHUB_ENV
+          fi
 
-      - name: Cache upstream tarballs
-        uses: actions/cache@v4
-        with:
-          path: |
-            staging/proton.tar.gz
-            staging/dxvk.tar.gz
-            staging/vkd3d.tar.zst
-          key: upstream-${{ steps.pins.outputs.PROTON_TAG }}-${{ steps.pins.outputs.DXVK_TAG }}-${{ steps.pins.outputs.VKD3D_TAG }}
-
-      - name: Fetch Proton/DXVK/VKD3D
+      - name: Fetch components
         env:
-          PROTON_TAG: ${{ steps.pins.outputs.PROTON_TAG }}
-          DXVK_TAG:   ${{ steps.pins.outputs.DXVK_TAG }}
-          VKD3D_TAG:  ${{ steps.pins.outputs.VKD3D_TAG }}
-        run: |
-          set -euo pipefail
-          bash scripts/ci/fetch_components.sh
+          PROTON_TAG: ${{ env.PROTON_TAG }}
+          DXVK_TAG:   ${{ env.DXVK_TAG }}
+          VKD3D_TAG:  ${{ env.VKD3D_TAG }}
+        run: bash scripts/ci/fetch_components.sh
 
       - name: Pack runtime
         env:
           RF_TAG: ${{ env.TAG }}
-          GITHUB_REF_NAME: ${{ env.TAG }}
+          PROTON_TAG: ${{ env.PROTON_TAG }}
+          DXVK_TAG:   ${{ env.DXVK_TAG }}
+          VKD3D_TAG:  ${{ env.VKD3D_TAG }}
+        run: bash scripts/rf_pack_runtime.sh
+
+      - name: Verify runtime ZIP
         run: |
           set -euo pipefail
-          bash scripts/rf_pack_runtime.sh
-          ls -la dist || true
+          ZIP="$(ls -1 dist/robotforest-wow64-runtime-${{ env.TAG }}.zip)"
+          bash scripts/rf_verify_runtime.sh "$ZIP"
 
-      - name: Verify runtime (non-regression)
-        run: |
-          set -euo pipefail
-          bash scripts/rf_verify_runtime.sh dist
-
-      - name: Upload artifacts
+      - name: Upload artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -94,9 +89,10 @@ jobs:
           if-no-files-found: warn
 
   release:
-    name: Create GitHub Release
+    # Only publish on (a) workflow_dispatch, or (b) tag refs
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}
     needs: build
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     env:
       TAG: ${{ inputs.tag || github.ref_name }}
     steps:
@@ -105,16 +101,15 @@ jobs:
           name: rf-runtime-dist
           path: out
 
-      - name: Locate runtime ZIP + checksum
+      - name: Locate ZIP
         id: findzip
         run: |
           set -euo pipefail
           zip_path="$(ls -1 out/**/robotforest-wow64-runtime-${TAG}.zip 2>/dev/null | head -n1 || true)"
-          [[ -z "${zip_path:-}" ]] && { echo "::error::zip not found for tag ${TAG}"; exit 1; }
-          sha256sum "$zip_path" | tee "${zip_path}.sha256"
+          [[ -n "${zip_path:-}" ]] || { echo "No runtime zip found"; exit 1; }
           echo "zip_path=${zip_path}" >> "$GITHUB_OUTPUT"
 
-      - name: Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}

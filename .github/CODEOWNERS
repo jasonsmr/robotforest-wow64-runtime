@@ -1,3 +1,6 @@
 # Require review by you on workflow and packaging changes
-/.github/workflows/*   @jasonsmr
-/scripts/**            @jasonsmr
+.github/workflows/**  @jasonsmr
+scripts/**            @jasonsmr
+tools/**              @jasonsmr
+staging/**            @jasonsmr
+dist/**               @jasonsmr

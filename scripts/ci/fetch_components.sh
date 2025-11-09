@@ -1,31 +1,44 @@
-# ~/android/robotforest-wow64-runtime/scripts/ci/fetch_components.sh
 #!/usr/bin/env bash
 set -euo pipefail
 
+: "${TMP:=${HOME}/tmp}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-. "$ROOT/scripts/ci/pins.env"
+STAGING="${ROOT}/staging"
+mkdir -p "$STAGING" "$TMP"
 
-mkdir -p "$ROOT/staging"
+# shellcheck disable=SC1091
+source "${ROOT}/scripts/ci/pins.env"
 
-# Proton-GE
-if [[ ! -f "$ROOT/staging/proton.tar.gz" ]]; then
-  echo "[fetch] Proton-GE $PROTON_TAG"
-  curl -fL "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/${PROTON_TAG}/Proton-${PROTON_TAG}.tar.gz" \
-    -o "$ROOT/staging/proton.tar.gz"
-fi
+need() { command -v "$1" >/dev/null 2>&1 || { echo "Missing $1" >&2; exit 1; }; }
+need aria2c; need sha256sum || true; need jq || true; need file || true
+
+dl() { # url out
+  local url="$1" out="$2"
+  if [[ ! -s "$out" ]]; then
+    aria2c -x16 -s16 -k1M -o "$(basename "$out")" -d "$(dirname "$out")" "$url"
+  fi
+}
+
+verify_sha() { # file expected
+  local f="$1" expected="${2:-}"
+  [[ -z "$expected" ]] && return 0
+  echo "${expected}  ${f}" | sha256sum -c -
+}
+
+# Proton
+P_TGZ="${STAGING}/proton.tar.gz"
+dl "$PROTON_URL" "$P_TGZ"
+verify_sha "$P_TGZ" "$PROTON_SHA256"
 
 # DXVK
-if [[ ! -f "$ROOT/staging/dxvk.tar.gz" ]]; then
-  echo "[fetch] DXVK $DXVK_TAG"
-  curl -fL "https://github.com/doitsujin/dxvk/releases/download/${DXVK_TAG}/dxvk-${DXVK_TAG}.tar.gz" \
-    -o "$ROOT/staging/dxvk.tar.gz"
-fi
+D_TGZ="${STAGING}/dxvk.tar.gz"
+dl "$DXVK_URL" "$D_TGZ"
+verify_sha "$D_TGZ" "$DXVK_SHA256"
 
 # vkd3d-proton
-if [[ ! -f "$ROOT/staging/vkd3d.tar.zst" ]]; then
-  echo "[fetch] vkd3d-proton $VKD3D_TAG"
-  curl -fL "https://github.com/HansKristian-Work/vkd3d-proton/releases/download/${VKD3D_TAG}/vkd3d-proton-${VKD3D_TAG}.tar.zst" \
-    -o "$ROOT/staging/vkd3d.tar.zst"
-fi
+V_ZST="${STAGING}/vkd3d.tar.zst"
+dl "$VKD3D_URL" "$V_ZST"
+verify_sha "$V_ZST" "$VKD3D_SHA256"
 
-echo "[fetch] done"
+echo "Fetched components:"
+ls -lh "$STAGING"

@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to build (e.g. v0.2.9). Empty = current ref.'
+        description: 'Tag to build (e.g. v0.3.0). Empty builds current ref.'
         required: false
         default: ''
         type: string
@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   precheck:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - name: Echo inputs
         run: |
