@@ -26,7 +26,10 @@ else
   echo "[verify] Sidecar .sha256 not provided; skipping outer check."
 fi
 
-TMP="$(mktemp -d)"
+# Respect Termux/Android: avoid /tmp, prefer $TMP or $HOME/tmp
+TMPDIR="${TMP:-${HOME}/tmp}"
+mkdir -p "$TMPDIR"
+TMP="$(mktemp -d -p "$TMPDIR")"
 trap 'rm -rf "$TMP"' EXIT
 
 echo "[verify] Extracting MANIFEST.SHA256"
