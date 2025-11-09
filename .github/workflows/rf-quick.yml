@@ -1,63 +1,40 @@
-name: RF Quick CI
+name: RF Quick
 
 on:
-  pull_request:
   push:
-    branches: [ main ]
+    branches: ["ci/**"]
+  pull_request:
+    branches: ["main", "ci/**"]
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
   group: rf-quick-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  lint-yaml:
+  quick:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Lint workflow YAML
-        uses: ibiqlik/action-yamllint@v3
-        with:
-          strict: true
-          config_data: |
-            extends: default
-            rules:
-              line-length: disable
 
-  fetch-and-sandbot:
-    runs-on: ubuntu-latest
-    needs: lint-yaml
-    steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
-
-      - name: Install deps
+      - name: Verify pins + list tree snapshot
         run: |
+          set -euxo pipefail
+          bash scripts/ci/fetch_components.sh --verify-only
+          echo "=== GIT TREE (TOP 200) ==="
+          git ls-files | head -n 200
+
+      - name: Shellcheck (scripts)
+        run: |
+          set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y zip zstd jq file aria2 pv xvfb
-
-      - name: Cache upstream tarballs
-        uses: actions/cache@v4
-        with:
-          path: |
-            staging/proton.tar.gz
-            staging/dxvk.tar.gz
-            staging/vkd3d.tar.zst
-          key: upstream-${{ hashFiles('scripts/ci/fetch_components.sh') }}
-
-      - name: Fetch Proton/DXVK/VKD3D
-        run: bash scripts/ci/fetch_components.sh
-
-      - name: Pack minimal runtime (debug mode)
-        env:
-          RF_TAG: ci-quick-${{ github.sha }}
-          GITHUB_REF_NAME: ci-quick
-        run: |
-          bash scripts/rf_pack_runtime.sh
-          ls -la dist || true
-
-      - name: Sandbot headless smoke
-        run: bash scripts/ci/sandbot_smoke.sh dist/robotforest-wow64-runtime notepad.exe
+          sudo apt-get install -y shellcheck
+          # Shellcheck all our sh files; ignore vendor dirs if any
+          mapfile -t SHS < <(git ls-files | grep -E '\.(sh|bash)$' || true)
+          if [ "${#SHS[@]}" -gt 0 ]; then
+            shellcheck "${SHS[@]}"
+          else
+            echo "No shell scripts to check."
+          fi

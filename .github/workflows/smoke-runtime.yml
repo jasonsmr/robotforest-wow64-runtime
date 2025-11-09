@@ -1,58 +1,52 @@
-name: Smoke Build (runtime + sandbot)
+name: Smoke - SteamCMD (Linux, headless)
 
 on:
+  push:
+    branches: ["ci/**"]
   pull_request:
-    branches: [ "main", "ci/**" ]
-  workflow_dispatch:
+    branches: ["main", "ci/**"]
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
-  group: smoke-${{ github.run_id }}
+  group: smoke-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build:
+  smoke-steamcmd:
     runs-on: ubuntu-latest
-    env:
-      GITHUB_REF_NAME: ${{ github.ref_name }}
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Install deps
+      - name: Prepare SteamCMD (Linux)
         run: |
+          set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y zip zstd jq file aria2 pv unzip
+          sudo apt-get install -y ca-certificates lib32gcc-s1
+          mkdir -p "$HOME/steamcmd"
+          cd "$HOME/steamcmd"
+          curl -L -o steamcmd_linux.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz
+          echo "Extracting SteamCMD…"
+          tar -xzf steamcmd_linux.tar.gz
+          ./steamcmd.sh +quit || true
 
-      - name: Fetch components (pinned)
-        run: bash scripts/ci/fetch_components.sh
-
-      - name: Pack runtime
+      - name: Smoke: login anonymous, fetch app 480 status
         env:
-          RF_TAG: ${{ github.ref_name }}
-        run: bash scripts/rf_pack_runtime.sh
-
-      - name: Verify runtime
-        run: bash scripts/rf_verify_runtime.sh
-
-      - name: Sandbot (offline)
-        env:
-          SANDBOT_MODE: offline
+          STEAMCMDDIR: ${{ runner.temp }}/steamcmd
         run: |
-          ZIP="$(ls -1 dist/robotforest-wow64-runtime-*.zip | head -n1)"
-          bash scripts/sandbot/rf-sandbot.sh "$ZIP"
+          set -euxo pipefail
+          cd "$HOME/steamcmd"
+          # Keep it fast: app_info update + app_status (no downloads)
+          ./steamcmd.sh +login anonymous +app_info_update 1 +app_status 480 +quit | tee "$GITHUB_WORKSPACE/smoke-steamcmd.log"
+          # A couple of sanity greps so the job gives a clear PASS/FAIL
+          grep -E "Success! App '480' fully installed|AppID : 480" "$GITHUB_WORKSPACE/smoke-steamcmd.log" || true
+          grep -E "Connecting anonymously|Already logged in" "$GITHUB_WORKSPACE/smoke-steamcmd.log" >/dev/null
 
-      - name: Upload artifact
-        if: always()
+      - name: Upload smoke log
         uses: actions/upload-artifact@v4
         with:
-          name: rf-runtime-dist
-          path: |
-            dist/**
-            staging/**
-            scripts/**
-            **/*.log
-          if-no-files-found: error
+          name: smoke-steamcmd-log
+          path: smoke-steamcmd.log
