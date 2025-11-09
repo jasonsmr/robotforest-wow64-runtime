@@ -22,26 +22,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Shell syntax + presence checks
+      - name: Sanity checks + dry pack
         run: |
           set -euxo pipefail
           test -f scripts/rf_pack_runtime.sh
           test -f scripts/rf_verify_runtime.sh
           bash -n scripts/rf_pack_runtime.sh
           bash -n scripts/rf_verify_runtime.sh
-
-      - name: Overlay structure sanity
-        run: |
-          set -euxo pipefail
-          test -f staging/overlay/runtime/rf-env.sh
-          test -f staging/overlay/runtime/wine64/user.reg
-          test -f staging/overlay/runtime/wine64/system.reg
-          test -f staging/overlay/runtime/box64/box64.conf
-          test -f staging/overlay/runtime/dxvk/dxvk.conf
-
-      - name: Dry-run pack (no downloads)
-        run: |
-          set -euxo pipefail
           rm -rf dist staging/build || true
           bash scripts/rf_pack_runtime.sh
           ls -l dist

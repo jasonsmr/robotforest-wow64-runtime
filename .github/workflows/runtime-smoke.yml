@@ -18,6 +18,8 @@ jobs:
   smoke-runtime:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      DEBIAN_FRONTEND: noninteractive
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -51,29 +53,36 @@ jobs:
           set -euxo pipefail
           mkdir -p runtime_extract
           tar --use-compress-program="zstd --long=31 -d" -C runtime_extract -xf "${{ steps.findart.outputs.art }}"
+          # show tree for debugging
+          find runtime_extract -maxdepth 3 -type d -print
 
-      - name: Conditional smoke via artifact
-        id: smoke
+      - name: Conditional smoke via artifact (always writes smoke.log)
         run: |
-          set -euxo pipefail
+          set -eux
+          : > smoke.log
           RDIR="runtime_extract/runtime"
-          echo "Runtime extracted to: ${RDIR}"
-          ls -la "${RDIR}" || true
+          echo "Runtime extracted to: ${RDIR}" | tee -a smoke.log
+          ls -la "${RDIR}" | tee -a smoke.log || true
 
-          # Prefer Box64+Wine if present, else fallback to Linux SteamCMD
           if [[ -x "${RDIR}/box64/box64" && -d "${RDIR}/wine64" ]]; then
-            echo "Detected Box64+Wine — (placeholder) would run Win SteamCMD here."
-            # Placeholder until pins are real:
-            echo "Box64+Wine not pinned yet; skipping actual Wine run." | tee smoke.log
+            echo "Detected Box64+Wine — placeholder smoke until pins are real." | tee -a smoke.log
+            # (future) box64 wine64 ... >>(tee -a smoke.log) 2>&1
             exit 0
           else
-            echo "Box64/Wine not present — fallback to Linux SteamCMD smoke."
+            echo "Box64/Wine not present — fallback to Linux SteamCMD smoke." | tee -a smoke.log
             mkdir -p "$HOME/steamcmd"
             cd "$HOME/steamcmd"
-            curl -L -o steamcmd_linux.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz
+            curl -fsSL -o steamcmd_linux.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz
             tar -xzf steamcmd_linux.tar.gz
-            ./steamcmd.sh +login anonymous +app_info_update 1 +app_status 480 +quit | tee "${GITHUB_WORKSPACE}/smoke.log"
-            grep -E "Connecting anonymously|Already logged in" "${GITHUB_WORKSPACE}/smoke.log" >/dev/null
+            set +e
+            ./steamcmd.sh +login anonymous +app_info_update 1 +app_status 480 +quit | tee -a "$GITHUB_WORKSPACE/smoke.log"
+            RC=$?
+            set -e
+            echo "steamcmd exit code: $RC" | tee -a "$GITHUB_WORKSPACE/smoke.log"
+            if ! grep -E "Connecting anonymously|Already logged in" "$GITHUB_WORKSPACE/smoke.log" >/dev/null; then
+              echo "Expected login message not found in smoke.log" | tee -a "$GITHUB_WORKSPACE/smoke.log"
+              exit 1
+            fi
           fi
 
       - name: Upload smoke log

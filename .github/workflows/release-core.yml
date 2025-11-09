@@ -16,6 +16,8 @@ jobs:
   pack-and-verify:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      DEBIAN_FRONTEND: noninteractive
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,10 +26,12 @@ jobs:
         run: |
           set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y zstd unzip ca-certificates
+          sudo apt-get install -y zstd unzip ca-certificates curl
 
       - name: Pack runtime
-        run: bash scripts/rf_pack_runtime.sh
+        run: |
+          set -euxo pipefail
+          bash scripts/rf_pack_runtime.sh
 
       - name: Find artifact
         id: find
