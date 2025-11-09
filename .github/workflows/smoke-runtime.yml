@@ -29,7 +29,7 @@ jobs:
           mkdir -p "$HOME/steamcmd"
           cd "$HOME/steamcmd"
           curl -L -o steamcmd_linux.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz
-          echo "Extracting SteamCMD…"
+          echo "Extracting SteamCMD..."
           tar -xzf steamcmd_linux.tar.gz
           ./steamcmd.sh +quit || true
 
@@ -39,10 +39,9 @@ jobs:
         run: |
           set -euxo pipefail
           cd "$HOME/steamcmd"
-          # Keep it fast: app_info update + app_status (no downloads)
+          # Keep it fast: app_info update + app_status (no big downloads)
           ./steamcmd.sh +login anonymous +app_info_update 1 +app_status 480 +quit | tee "$GITHUB_WORKSPACE/smoke-steamcmd.log"
-          # A couple of sanity greps so the job gives a clear PASS/FAIL
-          grep -E "Success! App '480' fully installed|AppID : 480" "$GITHUB_WORKSPACE/smoke-steamcmd.log" || true
+          # Clear PASS signal
           grep -E "Connecting anonymously|Already logged in" "$GITHUB_WORKSPACE/smoke-steamcmd.log" >/dev/null
 
       - name: Upload smoke log
