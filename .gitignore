@@ -13,3 +13,15 @@
 .*.swp
 .idea/
 .gradle/
+# build artifacts
+dist/
+out/
+*.log
+
+# staging outputs we shouldn't track
+staging/build/
+staging/downloads/
+
+# GH Actions artifacts
+**/*.artifact.zip
+**/*.artifact
