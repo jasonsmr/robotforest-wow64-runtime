@@ -20,11 +20,12 @@ mkdir -p "${BUILD}"
 echo "[pack] Using downloads from: ${DL}"
 test -d "${DL}" || { echo "ERROR: ${DL} missing. Run scripts/ci/fetch_components.sh --fetch first."; exit 1; }
 
-# If you haven't pinned or staged anything yet, allow overlay-only builds.
+# If you haven't pinned anything yet, fail fast.
 shopt -s nullglob
 artifacts=("${DL}"/*)
 if (( ${#artifacts[@]} == 0 )); then
-  echo "WARN: no downloaded artifacts in ${DL}; proceeding with overlay-only build"
+  echo "ERROR: no downloaded artifacts found in ${DL}"
+  exit 1
 fi
 
 unpack_one() {
@@ -36,13 +37,11 @@ unpack_one() {
   esac
 }
 
-if (( ${#artifacts[@]} > 0 )); then
-  echo "[pack] Unpacking artifacts…"
-  for f in "${DL}"/*; do
-    echo "  -> $f"
-    unpack_one "$f"
-  done
-fi
+echo "[pack] Unpacking artifacts…"
+for f in "${DL}"/*; do
+  echo "  -> $f"
+  unpack_one "$f"
+done
 
 # Optional overlay (your extra scripts/configs)
 if [[ -d "${OVERLAY}" ]]; then

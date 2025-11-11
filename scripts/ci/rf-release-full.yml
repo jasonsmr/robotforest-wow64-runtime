@@ -1,0 +1,78 @@
+name: RF Release (pack + verify + optional GitHub Release)
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: ["ci/**"]          # build on ci branches
+    tags: ["v*"]                 # publish release on tags
+
+permissions:
+  contents: write    # needed only for tag releases; harmless on branch builds
+
+concurrency:
+  group: rf-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Tools
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y zstd unzip ca-certificates curl
+
+      - name: Verify pins (no fetch)
+        run: bash scripts/ci/fetch_components.sh --verify-only
+
+      - name: Fetch components (if needed)
+        if: always()
+        run: bash scripts/ci/fetch_components.sh --fetch
+
+      - name: Pack runtime
+        run: bash scripts/rf_pack_runtime.sh
+
+      - name: Locate artifacts
+        id: findart
+        run: |
+          set -euo pipefail
+          ART="$(ls -1 dist/rf-runtime-*.tar.zst | tail -n1)"
+          echo "art=${ART}" >> "$GITHUB_OUTPUT"
+          echo "sha=${ART}.sha256" >> "$GITHUB_OUTPUT"
+          ls -l "$ART" "$ART.sha256"
+
+      - name: Verify runtime tarball
+        run: bash scripts/rf_verify_runtime.sh "${{ steps.findart.outputs.art }}" "${{ steps.findart.outputs.sha }}"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rf-runtime
+          path: |
+            ${{ steps.findart.outputs.art }}
+            ${{ steps.findart.outputs.sha }}
+
+  publish:
+    needs: build-runtime
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: rf-runtime
+          path: dist
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            dist/rf-runtime-*.tar.zst
+            dist/rf-runtime-*.tar.zst.sha256
+          draft: false
+          prerelease: false

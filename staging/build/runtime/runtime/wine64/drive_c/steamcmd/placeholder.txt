@@ -1,0 +1,1 @@
+This folder will hold the Windows SteamCMD client when pins are added.
