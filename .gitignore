@@ -1,39 +1,29 @@
+# ---- RobotForest runtime repo ignores (canonical) ----
+
 # outputs / payloads
 /dist/
-/staging/**/prefix/drive_c/users/*/Temp/
-/staging/**/prefix/drive_c/ProgramData/Package Cache/
-/staging/**/prefix/dosdevices/c:/windows/Temp/
-/staging/**/prefix/*.log
-*.zip
-*.tar
-*.tar.zst
-*.tar.gz
+out/
+*.log
 
-# editor noise
+# staging outputs we shouldn't track
+staging/build/
+staging/downloads/
+staging/**/prefix/drive_c/users/*/Temp/
+staging/**/prefix/drive_c/ProgramData/Package Cache/
+staging/**/prefix/dosdevices/c:/windows/Temp/
+staging/**/prefix/*.log
+
+# GH Actions artifacts
+**/*.artifact
+**/*.artifact.zip
+
+# editor/IDE noise
 .*.swp
 .idea/
 .gradle/
-# build artifacts
-dist/
-out/
-*.log
 
-# staging outputs we shouldn't track
-staging/build/
-staging/downloads/
-
-# GH Actions artifacts
-**/*.artifact.zip
-**/*.artifact
-# build artifacts
-dist/
-out/
-*.log
-
-# staging outputs we shouldn't track
-staging/build/
-staging/downloads/
-
-# GH Actions artifacts
-**/*.artifact.zip
-**/*.artifact
+# archives produced outside CI (safety net — prefer Releases artifacts)
+*.zip
+*.tar
+*.tar.gz
+*.tar.zst
