@@ -1,0 +1,34 @@
+name: RF Runtime Release (core)
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Tag (optional)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: release-core-${{ github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: Echo (build)
+        run: echo "CORE TAG=${TAG}"
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Echo (release)
+        run: echo "CORE RELEASE step"
