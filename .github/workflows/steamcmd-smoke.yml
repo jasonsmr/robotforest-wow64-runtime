@@ -27,12 +27,14 @@ jobs:
       - name: Prepare SteamCMD (Linux)
         shell: bash
         run: |
-          set -euxo pipefail
+set -euxo pipefail
+retry() { n=0; until "$@"; do n=$((n+1)); test $n -ge 3 && return 1; sleep 2; done }
+
           sudo apt-get update
           sudo apt-get install -y ca-certificates lib32gcc-s1 curl
           mkdir -p "$STEAMCMDDIR"
           cd "$STEAMCMDDIR"
-          curl -fsSL -o steamcmd_linux.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz
+          curl -fL --retry 3 --retry-delay 2 -o steamcmd_linux.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz
           tar -xzf steamcmd_linux.tar.gz
           ./steamcmd.sh +quit || true
 
