@@ -2,16 +2,14 @@ name: Smoke - SteamCMD (Linux, headless)
 
 on:
   push:
-    branches: ["ci/**"]
-  pull_request:
-    branches: ["main", "ci/**"]
+    branches: [ "ci/**" ]
   workflow_dispatch: {}
 
 permissions:
   contents: read
 
 concurrency:
-  group: smoke-steamcmd-${{ github.ref }}
+  group: smoke-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -27,9 +25,7 @@ jobs:
       - name: Prepare SteamCMD (Linux)
         shell: bash
         run: |
-set -euxo pipefail
-retry() { n=0; until "$@"; do n=$((n+1)); test $n -ge 3 && return 1; sleep 2; done }
-
+          set -euxo pipefail
           sudo apt-get update
           sudo apt-get install -y ca-certificates lib32gcc-s1 curl
           mkdir -p "$STEAMCMDDIR"
