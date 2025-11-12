@@ -2,8 +2,8 @@ name: RF Runtime Release (full)
 
 on:
   push:
-    branches: ["main"]
-    tags: ["v*.*.*"]
+    branches: [ "main" ]
+    tags: [ "v*.*.*" ]
   workflow_dispatch:
     inputs:
       tag:
@@ -22,7 +22,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     outputs:
-      tag: ${{ steps.set_tag.outputs.tag }}
+      tag: ${{ steps.compute-tag.outputs.tag }}
     steps:
       - name: Checkout (full)
         uses: actions/checkout@v4
@@ -30,17 +30,16 @@ jobs:
           fetch-depth: 0
 
       - name: Compute TAG
-        id: set_tag
+        id: compute-tag
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ github.event.inputs.tag }}" ]]; then
-            TAG="${{ github.event.inputs.tag }}"
+          if [[ -n "${{ github.event.inputs.tag || '' }}" ]]; then
+            echo "TAG=${{ github.event.inputs.tag }}" >> "$GITHUB_ENV"
           else
-            TAG="${GITHUB_REF_NAME}"
+            echo "TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "TAG=${TAG}" >> "$GITHUB_ENV"
           echo "RESOLVED TAG=$TAG"
 
       - name: If dispatch: checkout requested tag
@@ -56,14 +55,14 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y zip zstd jq file aria2 pv unzip
+          sudo apt-get install -y zip zstd jq file aria2 pv unzip ca-certificates curl
 
       - name: Set component tags
         shell: bash
         run: |
           echo "PROTON_TAG=${PROTON_TAG:-GE-Proton10-9}" >> "$GITHUB_ENV"
-          echo "DXVK_TAG=${DXVK_TAG:-v2.4}" >> "$GITHUB_ENV"
-          echo "VKD3D_TAG=${VKD3D_TAG:-v2.13}" >> "$GITHUB_ENV"
+          echo "DXVK_TAG=${DXVK_TAG:-v2.4}"             >> "$GITHUB_ENV"
+          echo "VKD3D_TAG=${VKD3D_TAG:-v2.13}"         >> "$GITHUB_ENV"
 
       - name: Cache upstream tarballs
         uses: actions/cache@v4
@@ -79,14 +78,16 @@ jobs:
           PROTON_TAG: ${{ env.PROTON_TAG }}
           DXVK_TAG:   ${{ env.DXVK_TAG }}
           VKD3D_TAG:  ${{ env.VKD3D_TAG }}
+        shell: bash
         run: |
           set -euo pipefail
           bash scripts/ci/fetch_components.sh
 
       - name: Run packer
         env:
-          RF_TAG: ${{ env.TAG }}
-          GITHUB_REF_NAME: ${{ env.TAG }}
+          RF_TAG: ${{ steps.compute-tag.outputs.tag }}
+          GITHUB_REF_NAME: ${{ steps.compute-tag.outputs.tag }}
+        shell: bash
         run: |
           set -euo pipefail
           bash scripts/rf_pack_runtime.sh
@@ -114,21 +115,21 @@ jobs:
           name: rf-runtime-dist
           path: out
 
-      - name: Locate runtime asset (zip or tar.zst)
+      - name: Locate asset (zip or tar.zst)
         id: findasset
         shell: bash
         run: |
           set -euo pipefail
           zip_path="$(ls -1t out/**/rf-runtime-*.zip 2>/dev/null | head -n1 || true)"
           zst_path="$(ls -1t out/**/rf-runtime-*.tar.zst 2>/dev/null | head -n1 || true)"
-          if [[ -n "$zip_path" ]]; then
-            echo "asset_path=$zip_path" >> "$GITHUB_OUTPUT"
+          if [[ -n "${zip_path}" ]]; then
+            echo "asset_path=${zip_path}" >> "$GITHUB_OUTPUT"
             [[ -f "${zip_path}.sha256" ]] && echo "sha_path=${zip_path}.sha256" >> "$GITHUB_OUTPUT"
-            ls -l "$zip_path" "${zip_path}.sha256" 2>/dev/null || true
-          elif [[ -n "$zst_path" ]]; then
-            echo "asset_path=$zst_path" >> "$GITHUB_OUTPUT"
+            ls -l "${zip_path}" "${zip_path}.sha256" 2>/dev/null || true
+          elif [[ -n "${zst_path}" ]]; then
+            echo "asset_path=${zst_path}" >> "$GITHUB_OUTPUT"
             [[ -f "${zst_path}.sha256" ]] && echo "sha_path=${zst_path}.sha256" >> "$GITHUB_OUTPUT"
-            ls -l "$zst_path" "${zst_path}.sha256" 2>/dev/null || true
+            ls -l "${zst_path}" "${zst_path}.sha256" 2>/dev/null || true
           else
             echo "No rf-runtime asset found under out/" >&2
             find out -maxdepth 3 -type f -print >&2 || true
