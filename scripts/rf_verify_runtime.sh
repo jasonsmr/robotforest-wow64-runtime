@@ -1,47 +1,96 @@
-#!/usr/bin/env bash
-# rf_verify_runtime.sh
-# Verify outer SHA256 and inner MANIFEST.SHA256 from a zstd-compressed tarball.
-
+# scripts/rf_verify_runtime.sh
+#!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
+# Usage:
+#   rf_verify_runtime.sh [runtime_dir|archive] [optional_sha256_file]
 
-if [[ $# -lt 1 ]]; then
-  echo "Usage: $0 /path/to/rf-runtime-*.tar.zst [optional:.sha256]" >&2
-  exit 2
+INPUT="${1:-$PWD/staging/rf_runtime}"
+SHA_FILE="${2:-}"
+
+workdir=""
+cleanup() { [[ -n "${workdir:-}" && -d "$workdir" ]] && rm -rf "$workdir"; }
+trap cleanup EXIT
+
+# If INPUT is an archive, extract to temp and set R to the extracted "runtime" dir
+is_zip=0; is_zst=0
+if [[ -f "$INPUT" ]]; then
+  case "$INPUT" in
+    *.zip) is_zip=1 ;;
+    *.tar.zst|*.tzst) is_zst=1 ;;
+  esac
 fi
 
-TAR="$1"
-SUMFILE="${2:-}"
-
-test -f "$TAR" || { echo "ERROR: missing tarball: $TAR"; exit 1; }
-
-# Auto-detect sidecar checksum
-if [[ -z "${SUMFILE}" ]]; then
-  [[ -f "${TAR}.sha256" ]] && SUMFILE="${TAR}.sha256" || true
+if [[ -n "$SHA_FILE" && -f "$SHA_FILE" ]]; then
+  echo "[verify] checking sha256: $SHA_FILE"
+  # supports lines like: "<hash>  filename"
+  # and also raw "<hash>"
+  file_base="$(basename "$INPUT")"
+  if grep -q "$file_base" "$SHA_FILE"; then
+    sha256sum -c "$SHA_FILE"
+  else
+    # raw hash file
+    echo "$(cat "$SHA_FILE")  $INPUT" | sha256sum -c -
+  fi
 fi
 
-if [[ -n "${SUMFILE}" ]]; then
-  echo "[verify] Checking outer sha256 via ${SUMFILE}"
-  ( cd "$(dirname "$TAR")" && sha256sum -c "$(basename "$SUMFILE")" )
+if [[ $is_zip -eq 1 || $is_zst -eq 1 ]]; then
+  workdir="$(mktemp -d)"
+  echo "[verify] extracting archive into: $workdir"
+  if [[ $is_zip -eq 1 ]]; then
+    unzip -q "$INPUT" -d "$workdir"
+  else
+    tar --use-compress-program="zstd -d" -C "$workdir" -xf "$INPUT"
+  fi
+  # try both "runtime" and "rf_runtime"
+  if [[ -d "$workdir/runtime" ]]; then
+    R="$workdir/runtime"
+  elif [[ -d "$workdir/rf_runtime" ]]; then
+    R="$workdir/rf_runtime"
+  else
+    # fall back: first dir
+    R="$(find "$workdir" -mindepth 1 -maxdepth 1 -type d | head -n1)"
+  fi
+  [[ -d "$R" ]] || { echo "FATAL: no runtime directory inside archive"; exit 2; }
 else
-  echo "[verify] Sidecar .sha256 not provided; skipping outer check."
+  R="$INPUT"
 fi
 
-# Respect Termux/Android: avoid /tmp, prefer $TMP or $HOME/tmp
-TMPDIR="${TMP:-${HOME}/tmp}"
-mkdir -p "$TMPDIR"
-TMP="$(mktemp -d -p "$TMPDIR")"
-trap 'rm -rf "$TMP"' EXIT
+echo "[verify] runtime root: $R"
 
-echo "[verify] Extracting MANIFEST.SHA256"
-# Use --long=31 so it can read large-window zstd streams
-tar --use-compress-program="zstd --long=31 -d" -xOf "$TAR" MANIFEST.SHA256 > "${TMP}/MANIFEST.SHA256"
+req_bins=( "$R/bin/wine64.sh" "$R/bin/wine32on64.sh" "$R/bin/steam-win.sh" )
 
-# Sanity-check format
-bad=$(awk '{ if (NF<2) print; }' "${TMP}/MANIFEST.SHA256" | wc -l)
-if [[ "$bad" != "0" ]]; then
-  echo "ERROR: MANIFEST.SHA256 appears malformed."
-  exit 1
-fi
+x64_need=( "ld-linux-x86-64.so.2" "libc.so.6" )
+x86_need=( "ld-linux.so.2" "libc.so.6" )
 
-echo "[verify] MANIFEST.SHA256 looks structurally valid."
-echo "[verify] OK"
+echo "==[ wrappers ]=="
+for f in "${req_bins[@]}"; do [[ -x "$f" ]] && echo "ok  $f" || echo "MISS $f"; done
+
+have_x64=0
+echo "==[ x86_64 sysroot ]=="
+for name in "${x64_need[@]}"; do
+  hit="$( (find "$R/x86_64-linux" -maxdepth 3 -type f -name "$name" 2>/dev/null || true) | head -n1 )"
+  if [[ -n "$hit" ]]; then echo "ok  $hit"; ((have_x64++))||true; else echo "MISS $R/x86_64-linux/**/$name"; fi
+done
+
+have_x86=0
+echo "==[ i386 sysroot ]=="
+for name in "${x86_need[@]}"; do
+  hit="$( (find "$R/i386-linux" -maxdepth 3 -type f -name "$name" 2>/dev/null || true) | head -n1 )"
+  if [[ -n "$hit" ]]; then echo "ok  $hit"; ((have_x86++))||true; else echo "MISS $R/i386-linux/**/$name"; fi
+done
+
+echo "==[ wine trees ]=="
+for d in "$R/wine64" "$R/wine32"; do
+  if [[ -d "$d" ]]; then echo "ok  $d"; find "$d" -maxdepth 1 -type f | sed 's/^/  - /' | head
+  else echo "MISS $d"; fi
+done
+
+echo "==[ dxvk/vkd3d ]=="
+for d in "$R/dxvk/x64" "$R/dxvk/x86" "$R/vkd3d/x64" "$R/vkd3d/x86"; do
+  [[ -d "$d" ]] && echo "ok  $d" || echo "MISS $d"
+done
+
+ex=0
+[[ $have_x64 -lt 2 ]] && ex=1
+[[ $have_x86 -lt 2 ]] && ex=1
+exit $ex
