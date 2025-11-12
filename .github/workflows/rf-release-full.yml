@@ -1,127 +1,55 @@
-name: RF Runtime Release (full)
+name: RF Release (pack + verify)
 
 on:
   push:
-    branches: [ "main" ]
-    tags: [ "v*.*.*" ]
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Tag to build (e.g. v0.2.9). Leave empty to build current ref."
-        required: false
-        default: ""
+    branches: ["ci/**"]
+  pull_request:
+    branches: ["main", "ci/**"]
+  workflow_dispatch: {}
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.workflow }}-${{ github.ref }}
+  group: release-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
     outputs:
-      tag: ${{ steps.compute-tag.outputs.tag }}
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
-      - name: Checkout (full)
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v4
 
-      - name: Compute TAG
-        id: compute-tag
+      - name: Compute tag
+        id: tag
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ github.event.inputs.tag }}" ]]; then
-            echo "TAG=${{ github.event.inputs.tag }}" >> "$GITHUB_ENV"
-          else
-            echo "TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
-          fi
+          TAG="${GITHUB_REF_NAME:-dev}-$(date +%Y%m%d-%H%M%S)"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "RESOLVED TAG=$TAG"
+          echo "Using TAG=${TAG}"
 
-      - name: If dispatch: checkout requested tag
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '' }}
-        shell: bash
+      - name: Tools
         run: |
-          set -euo pipefail
-          git fetch --tags --force
-          git checkout "refs/tags/${TAG}"
-
-      - name: Install deps
-        shell: bash
-        run: |
-          set -euo pipefail
+          set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y zip zstd jq file aria2 pv unzip ca-certificates curl
+          sudo apt-get install -y zstd unzip ca-certificates curl
 
-      - name: Set component tags
-        shell: bash
+      - name: Build runtime archive(s)
         run: |
-          echo "PROTON_TAG=${PROTON_TAG:-GE-Proton10-9}" >> "$GITHUB_ENV"
-          echo "DXVK_TAG=${DXVK_TAG:-v2.4}"              >> "$GITHUB_ENV"
-          echo "VKD3D_TAG=${VKD3D_TAG:-v2.13}"          >> "$GITHUB_ENV"
+          set -euxo pipefail
+          RF_TAG="${{ steps.tag.outputs.tag }}" bash scripts/ci/fetch_components.sh || true
+          RF_TAG="${{ steps.tag.outputs.tag }}" bash scripts/rf_pack_runtime.sh
 
-      - name: Cache upstream tarballs
-        uses: actions/cache@v4
-        with:
-          path: |
-            staging/proton.tar.gz
-            staging/dxvk.tar.gz
-            staging/vkd3d.tar.zst
-          key: upstream-${{ env.PROTON_TAG }}-${{ env.DXVK_TAG }}-${{ env.VKD3D_TAG }}
-
-      - name: Fetch Proton/DXVK/vkd3d components
-        env:
-          PROTON_TAG: ${{ env.PROTON_TAG }}
-          DXVK_TAG:   ${{ env.DXVK_TAG }}
-          VKD3D_TAG:  ${{ env.VKD3D_TAG }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash scripts/ci/fetch_components.sh
-
-      - name: Run packer
-        env:
-          RF_TAG: ${{ steps.compute-tag.outputs.tag }}
-          GITHUB_REF_NAME: ${{ steps.compute-tag.outputs.tag }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash scripts/rf_pack_runtime.sh
-          ls -la dist || true
-
-      - name: Upload artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: rf-runtime-dist
-          path: |
-            dist/**
-            staging/**
-            scripts/**
-            **/*.log
-          if-no-files-found: warn
-
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: rf-runtime-dist
-          path: out
-
-      - name: Locate asset (zip or tar.zst)
+      - name: Locate asset
         id: findasset
         shell: bash
         run: |
           set -euo pipefail
-          zip_path="$(ls -1t out/**/rf-runtime-*.zip 2>/dev/null | head -n1 || true)"
-          zst_path="$(ls -1t out/**/rf-runtime-*.tar.zst 2>/dev/null | head -n1 || true)"
+          zip_path="$(ls -1t dist/rf-runtime-*.zip 2>/dev/null | head -n1 || true)"
+          zst_path="$(ls -1t dist/rf-runtime-*.tar.zst 2>/dev/null | head -n1 || true)"
           if [[ -n "${zip_path}" ]]; then
             echo "asset_path=${zip_path}" >> "$GITHUB_OUTPUT"
             [[ -f "${zip_path}.sha256" ]] && echo "sha_path=${zip_path}.sha256" >> "$GITHUB_OUTPUT"
@@ -131,21 +59,34 @@ jobs:
             [[ -f "${zst_path}.sha256" ]] && echo "sha_path=${zst_path}.sha256" >> "$GITHUB_OUTPUT"
             ls -l "${zst_path}" "${zst_path}.sha256" 2>/dev/null || true
           else
-            echo "No rf-runtime asset found under out/" >&2
-            find out -maxdepth 3 -type f -print >&2 || true
+            echo "No rf-runtime asset found under dist/" >&2
+            find dist -maxdepth 3 -type f -print >&2 || true
             exit 1
           fi
 
+      - name: Verify artifact
+        run: |
+          set -euxo pipefail
+          if [[ -n "${{ steps.findasset.outputs.sha_path }}" ]]; then
+            bash scripts/rf_verify_runtime.sh "${{ steps.findasset.outputs.asset_path }}" "${{ steps.findasset.outputs.sha_path }}"
+          else
+            bash scripts/rf_verify_runtime.sh "${{ steps.findasset.outputs.asset_path }}"
+          fi
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.build.outputs.tag }}
           name: robotforest-wow64-runtime ${{ needs.build.outputs.tag }}
           files: |
-            ${{ steps.findasset.outputs.asset_path }}
-            ${{ steps.findasset.outputs.sha_path }}
+            ${{ needs.build.outputs.tag && format('dist/rf-runtime-{0}.zip', needs.build.outputs.tag) }}
+            ${{ needs.build.outputs.tag && format('dist/rf-runtime-{0}.zip.sha256', needs.build.outputs.tag) }}
+            ${{ needs.build.outputs.tag && format('dist/rf-runtime-{0}.tar.zst', needs.build.outputs.tag) }}
+            ${{ needs.build.outputs.tag && format('dist/rf-runtime-{0}.tar.zst.sha256', needs.build.outputs.tag) }}
           draft: false
           prerelease: false
           make_latest: true
-
-# touch: 1762965434

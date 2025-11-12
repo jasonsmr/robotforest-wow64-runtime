@@ -2,14 +2,16 @@ name: Smoke - SteamCMD (Linux, headless)
 
 on:
   push:
-    branches: [ "ci/**" ]
+    branches: ["ci/**"]
+  pull_request:
+    branches: ["main", "ci/**"]
   workflow_dispatch: {}
 
 permissions:
   contents: read
 
 concurrency:
-  group: smoke-${{ github.ref }}
+  group: smoke-steamcmd-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -49,5 +51,3 @@ jobs:
           name: smoke-steamcmd-log
           path: smoke-steamcmd.log
           if-no-files-found: warn
-
-# touch: 1762965434
