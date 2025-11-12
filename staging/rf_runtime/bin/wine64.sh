@@ -12,4 +12,9 @@ export WINEDEBUG="${WINEDEBUG:-fixme-all,err+all}"
 export WINEDLLPATH="$ROOT/wine64:$ROOT/wine32"
 export DXVK_LOG_PATH="$WINEPREFIX/dxvk-logs"
 
+export WINEDLLOVERRIDES="d3d9=n;d3d10=n;d3d10_1=n;d3d11=n;d3d12=n;dxgi=n"
+export DXVK_STATE_CACHE=1
+export DXVK_STATE_CACHE_PATH="$WINEPREFIX"
+export WINEDLLPATH="$ROOT/wine64:$ROOT/wine32:$ROOT/dxvk/x64:$ROOT/dxvk/x86:$ROOT/vkd3d/x64:$ROOT/vkd3d/x86"
+
 exec "$BIN/box64" "$ROOT/wine64/wine64" "$@"
