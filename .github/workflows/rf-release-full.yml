@@ -21,25 +21,32 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
       - name: Checkout (full)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # Compute TAG once
+      # Compute TAG once and expose it as both env + job output
       - name: Compute TAG
+        id: tag
         shell: bash
         run: |
           set -euo pipefail
           if [[ -n "${{ github.event.inputs.tag || '' }}" ]]; then
-            echo "TAG=${{ github.event.inputs.tag }}" >> "$GITHUB_ENV"
+            TAG="${{ github.event.inputs.tag }}"
+          elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            TAG="${GITHUB_REF_NAME}"
           else
-            echo "TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+            TAG="${GITHUB_REF_NAME}"
           fi
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "RESOLVED TAG=$TAG"
 
-      # If dispatched with a tag, check it out
+      # If manually dispatched with a tag, check it out
       - name: If dispatch: checkout requested tag
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '' }}
         shell: bash
@@ -53,9 +60,9 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y zip zstd jq file aria2 pv unzip
+          sudo apt-get install -y zip zstd jq file aria2 pv unzip curl ca-certificates
 
-      # Set component tags BEFORE cache, so cache key can use env.*
+      # Set component tags BEFORE cache so they’re available to the cache key
       - name: Set component tags
         shell: bash
         run: |
@@ -77,6 +84,7 @@ jobs:
           PROTON_TAG: ${{ env.PROTON_TAG }}
           DXVK_TAG:   ${{ env.DXVK_TAG }}
           VKD3D_TAG:  ${{ env.VKD3D_TAG }}
+        shell: bash
         run: |
           set -euo pipefail
           bash scripts/ci/fetch_components.sh
@@ -85,10 +93,11 @@ jobs:
         env:
           RF_TAG: ${{ env.TAG }}
           GITHUB_REF_NAME: ${{ env.TAG }}
+        shell: bash
         run: |
           set -euo pipefail
           bash scripts/rf_pack_runtime.sh
-          ls -la dist
+          ls -la dist || true
 
       - name: Upload artifacts
         if: always()
@@ -112,29 +121,35 @@ jobs:
           name: rf-runtime-dist
           path: out
 
-      - name: Locate runtime ZIP
-        id: findzip
+      - name: Locate runtime asset (zip or tar.zst)
+        id: findasset
         shell: bash
         run: |
           set -euo pipefail
           zip_path="$(ls -1t out/**/rf-runtime-*.zip 2>/dev/null | head -n1 || true)"
-          if [[ -z "${zip_path:-}" ]]; then
-            echo "No runtime zip found under out/" >&2
+          zst_path="$(ls -1t out/**/rf-runtime-*.tar.zst 2>/dev/null | head -n1 || true)"
+          if [[ -n "$zip_path" ]]; then
+            echo "asset_path=$zip_path" >> "$GITHUB_OUTPUT"
+            [[ -f "${zip_path}.sha256" ]] && echo "sha_path=${zip_path}.sha256" >> "$GITHUB_OUTPUT"
+            ls -l "$zip_path" "${zip_path}.sha256" 2>/dev/null || true
+          elif [[ -n "$zst_path" ]]; then
+            echo "asset_path=$zst_path" >> "$GITHUB_OUTPUT"
+            [[ -f "${zst_path}.sha256" ]] && echo "sha_path=${zst_path}.sha256" >> "$GITHUB_OUTPUT"
+            ls -l "$zst_path" "${zst_path}.sha256" 2>/dev/null || true
+          else
+            echo "No rf-runtime asset found under out/" >&2
             find out -maxdepth 3 -type f -print >&2 || true
             exit 1
           fi
-          echo "zip_path=${zip_path}" >> "$GITHUB_OUTPUT"
-          ls -l "$zip_path" || true
-          [[ -f "${zip_path}.sha256" ]] && ls -l "${zip_path}.sha256" || true
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.TAG }}
-          name: robotforest-wow64-runtime ${{ env.TAG }}
+          tag_name: ${{ needs.build.outputs.tag }}
+          name: robotforest-wow64-runtime ${{ needs.build.outputs.tag }}
           files: |
-            ${{ steps.findzip.outputs.zip_path }}
-            ${{ steps.findzip.outputs.zip_path }}.sha256
+            ${{ steps.findasset.outputs.asset_path }}
+            ${{ steps.findasset.outputs.sha_path }}
           draft: false
           prerelease: false
           make_latest: true
