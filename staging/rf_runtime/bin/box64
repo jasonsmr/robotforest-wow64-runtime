@@ -1,2 +1,12 @@
 #!/system/bin/sh
-echo "Use exec-mounted libbox64.so (provided via APK jniLibs)."
+# Prefer explicit override, then a system-provided box64, otherwise hint.
+if [ -n "${BOX64_BIN:-}" ] && command -v "$BOX64_BIN" >/dev/null 2>&1; then
+  exec "$BOX64_BIN" "$@"
+elif command -v box64 >/dev/null 2>&1; then
+  exec box64 "$@"
+else
+  echo "Box64 runner not found."
+  echo " - For APK, Exec.java will load libbox64.so from jniLibs automatically."
+  echo " - For shell, install box64 in PATH or set BOX64_BIN=/path/to/box64."
+  exit 127
+fi
