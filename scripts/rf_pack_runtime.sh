@@ -1,82 +1,35 @@
-#!/usr/bin/env bash
-# rf_pack_runtime.sh
-# Assemble a reproducible runtime bundle from staging/downloads + local overlays.
-# Output: dist/rf-runtime-<date>-<shortsha>.tar.zst and matching .sha256
-
+#!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-ROOT="$(CDPATH= cd -- "$(dirname -- "$0")"/.. && pwd)"
-DL="${ROOT}/staging/downloads"
-OVERLAY="${ROOT}/staging/overlay"   # optional: anything here is copied into runtime/
-BUILD="${ROOT}/staging/build/runtime"
-DIST="${ROOT}/dist"
+REPO="$(cd "$(dirname "$0")/.."; pwd)"
+STAGE="$REPO/staging"
+ROOT="$STAGE/rf_runtime"
+OUT="$REPO/dist"
+mkdir -p "$OUT"
 
-mkdir -p "${BUILD}" "${DIST}"
+# Derive TAG
+TAG="${RF_TAG:-${GITHUB_REF_NAME:-dev}}"
+DATE="$(date +%Y%m%d-%H%M%S)"
+BASE="rf-runtime-${TAG}"
 
-# Clean previous build dir but keep DIST
-rm -rf "${BUILD:?}"/*
-mkdir -p "${BUILD}"
+# Sanity: wrappers must exist
+test -x "$ROOT/bin/wine64.sh"
+test -x "$ROOT/bin/wine32on64.sh"
+test -x "$ROOT/bin/steam-win.sh"
 
-echo "[pack] Using downloads from: ${DL}"
-test -d "${DL}" || { echo "ERROR: ${DL} missing. Run scripts/ci/fetch_components.sh --fetch first."; exit 1; }
+# 1) tar.zst
+TAR="$OUT/${BASE}.tar.zst"
+echo "[pack] ${TAR}"
+tar -C "$STAGE" -I 'zstd --long=31 -19' -cf "$TAR" rf_runtime
+( cd "$OUT" && sha256sum "$(basename "$TAR")" > "$(basename "$TAR").sha256" )
 
-# If you haven't pinned or staged anything yet, allow overlay-only builds.
-shopt -s nullglob
-artifacts=("${DL}"/*)
-if (( ${#artifacts[@]} == 0 )); then
-  echo "WARN: no downloaded artifacts in ${DL}; proceeding with overlay-only build"
-fi
+# 2) zip
+ZIP="$OUT/${BASE}.zip"
+echo "[pack] ${ZIP}"
+cd "$STAGE"
+zip -q -r "$ZIP" rf_runtime
+cd - >/dev/null
+( cd "$OUT" && sha256sum "$(basename "$ZIP")" > "$(basename "$ZIP").sha256" )
 
-unpack_one() {
-  local f="$1"
-  case "$f" in
-    *.tar.zst|*.tar.xz|*.tar.gz) tar -xf "$f" -C "${BUILD}";;
-    *.zip) unzip -q "$f" -d "${BUILD}";;
-    *) echo "WARN: skipping unknown archive type: $f";;
-  esac
-}
-
-if (( ${#artifacts[@]} > 0 )); then
-  echo "[pack] Unpacking artifacts…"
-  for f in "${DL}"/*; do
-    echo "  -> $f"
-    unpack_one "$f"
-  done
-fi
-
-# Optional overlay (your extra scripts/configs)
-if [[ -d "${OVERLAY}" ]]; then
-  echo "[pack] Applying overlay from ${OVERLAY}"
-  rsync -a --delete "${OVERLAY}/" "${BUILD}/"
-fi
-
-# Standardize layout root under "runtime/"
-if [[ ! -d "${BUILD}/runtime" ]]; then
-  echo "[pack] Normalizing layout under runtime/"
-  mkdir -p "${BUILD}/runtime"
-  shopt -s dotglob
-  for item in "${BUILD}"/*; do
-    [[ "$(basename "$item")" == "runtime" ]] && continue
-    mv "$item" "${BUILD}/runtime/" || true
-  done
-  shopt -u dotglob
-fi
-
-# Create MANIFEST.SHA256 (deterministic order)
-echo "[pack] Writing MANIFEST.SHA256"
-( cd "${BUILD}/runtime" && LC_ALL=C find . -type f -print0 | sort -z | xargs -0 sha256sum ) > "${BUILD}/MANIFEST.SHA256"
-
-# Stamp and pack
-DATE="$(date -u +%Y%m%d)"
-GIT_SHA="$(git -C "${ROOT}" rev-parse --short=8 HEAD || echo nogit)"
-OUT="${DIST}/rf-runtime-${DATE}-${GIT_SHA}.tar.zst"
-
-echo "[pack] Creating ${OUT}"
-( cd "${BUILD}" && tar --sort=name --mtime='UTC 2020-01-01' --owner=0 --group=0 --numeric-owner \
-     -I 'zstd -19 --long=31' -cf "${OUT}" MANIFEST.SHA256 runtime )
-
-echo "[pack] Creating ${OUT}.sha256"
-( cd "${DIST}" && sha256sum "$(basename "${OUT}")" > "${OUT}.sha256" )
-
-echo "[pack] Done:"
-ls -lh "${OUT}" "${OUT}.sha256"
+echo "[ok] built:"
+ls -lh "$TAR" "$TAR.sha256" "$ZIP" "$ZIP.sha256"
