@@ -76,7 +76,7 @@ jobs:
           set -eux
           : > smoke.log
           RDIR="runtime_extract/rf_runtime"
-          if [[ ! -d "$RDIR" ]]; then RDIR="runtime_extract/runtime"; fi
+          if [[ ! -d "$RDIR" ]]; then RDIR="runtime_extract/runtime"; [[ -d "runtime_extract/rf_runtime" ]] && RDIR="runtime_extract/rf_runtime" || true; fi
           echo "Runtime extracted to: ${RDIR}" | tee -a smoke.log
           ls -la "${RDIR}" | tee -a smoke.log || true
           if [[ -x "${RDIR}/bin/wine64.sh" && -d "${RDIR}/wine64" ]]; then
