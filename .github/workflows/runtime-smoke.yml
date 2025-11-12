@@ -38,12 +38,24 @@ jobs:
 
       - name: Locate artifact
         id: findart
+        shell: bash
         run: |
           set -euo pipefail
-          ART="$(ls -1 dist/rf-runtime-*.tar.zst | tail -n1)"
-          echo "art=${ART}" >> "$GITHUB_OUTPUT"
-          echo "sha=${ART}.sha256" >> "$GITHUB_OUTPUT"
-          ls -l "$ART" "$ART.sha256"
+          ZIP="$(ls -1t dist/rf-runtime-*.zip 2>/dev/null | head -n1 || true)"
+          ZST="$(ls -1t dist/rf-runtime-*.tar.zst 2>/dev/null | head -n1 || true)"
+          if [[ -n "$ZST" ]]; then
+            echo "art=$ZST"   >> "$GITHUB_OUTPUT"
+            echo "sha=$ZST.sha256" >> "$GITHUB_OUTPUT"
+            ls -l "$ZST" "$ZST.sha256"
+          elif [[ -n "$ZIP" ]]; then
+            echo "art=$ZIP"   >> "$GITHUB_OUTPUT"
+            echo "sha=$ZIP.sha256" >> "$GITHUB_OUTPUT"
+            ls -l "$ZIP" "$ZIP.sha256"
+          else
+            echo "No dist artifact found" >&2
+            ls -l dist || true
+            exit 1
+          fi
 
       - name: Verify artifact
         run: bash scripts/rf_verify_runtime.sh "${{ steps.findart.outputs.art }}" "${{ steps.findart.outputs.sha }}"
@@ -52,24 +64,27 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p runtime_extract
-          tar --use-compress-program="zstd --long=31 -d" -C runtime_extract -xf "${{ steps.findart.outputs.art }}"
-          # show tree for debugging
+          if [[ "${{ steps.findart.outputs.art }}" == *.tar.zst ]]; then
+            tar --use-compress-program="zstd -d" -C runtime_extract -xf "${{ steps.findart.outputs.art }}"
+          else
+            unzip -q "${{ steps.findart.outputs.art }}" -d runtime_extract
+          fi
           find runtime_extract -maxdepth 3 -type d -print
 
       - name: Conditional smoke via artifact (always writes smoke.log)
         run: |
           set -eux
           : > smoke.log
-          RDIR="runtime_extract/runtime"
+          RDIR="runtime_extract/rf_runtime"
+          if [[ ! -d "$RDIR" ]]; then RDIR="runtime_extract/runtime"; fi
           echo "Runtime extracted to: ${RDIR}" | tee -a smoke.log
           ls -la "${RDIR}" | tee -a smoke.log || true
-
-          if [[ -x "${RDIR}/box64/box64" && -d "${RDIR}/wine64" ]]; then
-            echo "Detected Box64+Wine — placeholder smoke until pins are real." | tee -a smoke.log
-            # (future) box64 wine64 ... >>(tee -a smoke.log) 2>&1
+          if [[ -x "${RDIR}/bin/wine64.sh" && -d "${RDIR}/wine64" ]]; then
+            echo "Found wine64 runner — placeholder smoke (command discovery only)." | tee -a smoke.log
+            "${RDIR}/bin/wine64.sh" --version >> smoke.log 2>&1 || true
             exit 0
           else
-            echo "Box64/Wine not present — fallback to Linux SteamCMD smoke." | tee -a smoke.log
+            echo "Wine not present — fallback to Linux SteamCMD smoke." | tee -a smoke.log
             mkdir -p "$HOME/steamcmd"
             cd "$HOME/steamcmd"
             curl -fsSL -o steamcmd_linux.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz
