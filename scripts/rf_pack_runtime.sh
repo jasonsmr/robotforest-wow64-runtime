@@ -33,3 +33,13 @@ cd - >/dev/null
 
 echo "[ok] built:"
 ls -lh "$TAR" "$TAR.sha256" "$ZIP" "$ZIP.sha256"
+
+# --- sanity checks: ensure wine payloads exist ---
+if [ ! -x "$ROOT/bin/wine64.sh" ]; then echo "[fail] missing wine64.sh" >&2; exit 2; fi
+if [ ! -d "$ROOT/wine64" ]; then echo "[fail] missing wine64 tree" >&2; exit 2; fi
+if [ ! -d "$ROOT/wine32" ]; then echo "[fail] missing wine32 tree" >&2; exit 2; fi
+if [ ! -f "$ROOT/wine64/wine64" ]; then
+  echo "[fail] missing wine64 loader in $ROOT/wine64" >&2
+  ls -la "$ROOT/wine64" || true
+  exit 2
+fi
