@@ -27,7 +27,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Compute TAG once and export to $GITHUB_ENV
+      # Compute TAG once
       - name: Compute TAG
         shell: bash
         run: |
@@ -39,7 +39,7 @@ jobs:
           fi
           echo "RESOLVED TAG=$TAG"
 
-      # If TAG is a tag ref, checkout that exact tag
+      # If dispatched with a tag, check it out
       - name: If dispatch: checkout requested tag
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '' }}
         shell: bash
@@ -53,7 +53,15 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y zip zstd jq file aria2 pv
+          sudo apt-get install -y zip zstd jq file aria2 pv unzip
+
+      # Set component tags BEFORE cache, so cache key can use env.*
+      - name: Set component tags
+        shell: bash
+        run: |
+          echo "PROTON_TAG=${PROTON_TAG:-GE-Proton10-9}" >> "$GITHUB_ENV"
+          echo "DXVK_TAG=${DXVK_TAG:-v2.4}"             >> "$GITHUB_ENV"
+          echo "VKD3D_TAG=${VKD3D_TAG:-v2.13}"         >> "$GITHUB_ENV"
 
       - name: Cache upstream tarballs
         uses: actions/cache@v4
@@ -62,17 +70,9 @@ jobs:
             staging/proton.tar.gz
             staging/dxvk.tar.gz
             staging/vkd3d.tar.zst
-          key: upstream-${{ env.PROTON_TAG || 'GE-Proton10-9' }}-${{ env.DXVK_TAG || 'v2.4' }}-${{ env.VKD3D_TAG || 'v2.13' }}
-
-      - name: Set component tags (defaults here; override by env at dispatch if desired)
-        shell: bash
-        run: |
-          echo "PROTON_TAG=${PROTON_TAG:-GE-Proton10-9}" >> "$GITHUB_ENV"
-          echo "DXVK_TAG=${DXVK_TAG:-v2.4}"             >> "$GITHUB_ENV"
-          echo "VKD3D_TAG=${VKD3D_TAG:-v2.13}"         >> "$GITHUB_ENV"
+          key: upstream-${{ env.PROTON_TAG }}-${{ env.DXVK_TAG }}-${{ env.VKD3D_TAG }}
 
       - name: Fetch Proton/DXVK/vkd3d components
-        shell: bash
         env:
           PROTON_TAG: ${{ env.PROTON_TAG }}
           DXVK_TAG:   ${{ env.DXVK_TAG }}
@@ -82,7 +82,6 @@ jobs:
           bash scripts/ci/fetch_components.sh
 
       - name: Run packer
-        shell: bash
         env:
           RF_TAG: ${{ env.TAG }}
           GITHUB_REF_NAME: ${{ env.TAG }}
@@ -118,8 +117,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # find most recent zip matching our naming
-          zip_path="$(ls -1t out/**/rf-runtime*.zip 2>/dev/null | head -n1 || true)"
+          zip_path="$(ls -1t out/**/rf-runtime-*.zip 2>/dev/null | head -n1 || true)"
           if [[ -z "${zip_path:-}" ]]; then
             echo "No runtime zip found under out/" >&2
             find out -maxdepth 3 -type f -print >&2 || true
@@ -129,7 +127,7 @@ jobs:
           ls -l "$zip_path" || true
           [[ -f "${zip_path}.sha256" ]] && ls -l "${zip_path}.sha256" || true
 
-      - name: Create Release (bind to computed tag)
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
