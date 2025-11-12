@@ -82,3 +82,13 @@ while IFS= read -r line; do
 done < "${pins}"
 
 exit "${fail}"
+
+# --- RobotForest: stage Wine from Proton into rf_runtime if present ---
+STAGE_DIR="$(cd "$(dirname "$0")/.." && pwd)/staging"
+RUNTIME_DIR="${STAGE_DIR}/rf_runtime"
+PROTON_TARBALL="${PROTON_TARBALL:-${STAGE_DIR}/proton.tar.gz}"
+
+if [ -d "${RUNTIME_DIR}" ]; then
+  echo ">> Stage Wine from Proton (if available)"
+  bash "$(cd "$(dirname "$0")" && pwd)/stage_wine_from_proton.sh" "${PROTON_TARBALL}" "${RUNTIME_DIR}" || true
+fi
