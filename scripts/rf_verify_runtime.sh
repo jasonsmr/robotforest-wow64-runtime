@@ -1,4 +1,3 @@
-# scripts/rf_verify_runtime.sh
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 # Usage:
@@ -11,7 +10,6 @@ workdir=""
 cleanup() { [[ -n "${workdir:-}" && -d "$workdir" ]] && rm -rf "$workdir"; }
 trap cleanup EXIT
 
-# If INPUT is an archive, extract to temp and set R to the extracted "runtime" dir
 is_zip=0; is_zst=0
 if [[ -f "$INPUT" ]]; then
   case "$INPUT" in
@@ -20,35 +18,27 @@ if [[ -f "$INPUT" ]]; then
   esac
 fi
 
-if [[ -n "$SHA_FILE" && -f "$SHA_FILE" ]]; then
+if [[ -n "${SHA_FILE:-}" && -f "$SHA_FILE" ]]; then
   echo "[verify] checking sha256: $SHA_FILE"
-  # supports lines like: "<hash>  filename"
-  # and also raw "<hash>"
   file_base="$(basename "$INPUT")"
   if grep -q "$file_base" "$SHA_FILE"; then
     sha256sum -c "$SHA_FILE"
   else
-    # raw hash file
     echo "$(cat "$SHA_FILE")  $INPUT" | sha256sum -c -
   fi
 fi
 
-if [[ $is_zip -eq 1 || $is_zst -eq 1 ]]; then
+if (( is_zip || is_zst )); then
   workdir="$(mktemp -d)"
   echo "[verify] extracting archive into: $workdir"
-  if [[ $is_zip -eq 1 ]]; then
+  if (( is_zip )); then
     unzip -q "$INPUT" -d "$workdir"
   else
     tar --use-compress-program="zstd -d" -C "$workdir" -xf "$INPUT"
   fi
-  # try both "runtime" and "rf_runtime"
-  if [[ -d "$workdir/runtime" ]]; then
-    R="$workdir/runtime"
-  elif [[ -d "$workdir/rf_runtime" ]]; then
-    R="$workdir/rf_runtime"
-  else
-    # fall back: first dir
-    R="$(find "$workdir" -mindepth 1 -maxdepth 1 -type d | head -n1)"
+  if   [[ -d "$workdir/runtime"    ]]; then R="$workdir/runtime"
+  elif [[ -d "$workdir/rf_runtime" ]]; then R="$workdir/rf_runtime"
+  else R="$(find "$workdir" -mindepth 1 -maxdepth 1 -type d | head -n1)"
   fi
   [[ -d "$R" ]] || { echo "FATAL: no runtime directory inside archive"; exit 2; }
 else
@@ -58,7 +48,6 @@ fi
 echo "[verify] runtime root: $R"
 
 req_bins=( "$R/bin/wine64.sh" "$R/bin/wine32on64.sh" "$R/bin/steam-win.sh" )
-
 x64_need=( "ld-linux-x86-64.so.2" "libc.so.6" )
 x86_need=( "ld-linux.so.2" "libc.so.6" )
 
