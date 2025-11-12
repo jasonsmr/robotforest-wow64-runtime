@@ -2,8 +2,8 @@ name: RF Runtime Release (full)
 
 on:
   push:
-    branches: [ "main" ]
-    tags: [ "v*.*.*" ]
+    branches: ["main"]
+    tags: ["v*.*.*"]
   workflow_dispatch:
     inputs:
       tag:
@@ -22,31 +22,27 @@ jobs:
   build:
     runs-on: ubuntu-latest
     outputs:
-      tag: ${{ steps.tag.outputs.tag }}
+      tag: ${{ steps.set_tag.outputs.tag }}
     steps:
       - name: Checkout (full)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # Compute TAG once and expose it as both env + job output
       - name: Compute TAG
-        id: tag
+        id: set_tag
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -n "${{ github.event.inputs.tag || '' }}" ]]; then
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ github.event.inputs.tag }}" ]]; then
             TAG="${{ github.event.inputs.tag }}"
-          elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            TAG="${GITHUB_REF_NAME}"
           else
             TAG="${GITHUB_REF_NAME}"
           fi
-          echo "TAG=$TAG" >> "$GITHUB_ENV"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "TAG=${TAG}" >> "$GITHUB_ENV"
           echo "RESOLVED TAG=$TAG"
 
-      # If manually dispatched with a tag, check it out
       - name: If dispatch: checkout requested tag
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '' }}
         shell: bash
@@ -60,15 +56,14 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y zip zstd jq file aria2 pv unzip curl ca-certificates
+          sudo apt-get install -y zip zstd jq file aria2 pv unzip
 
-      # Set component tags BEFORE cache so they’re available to the cache key
       - name: Set component tags
         shell: bash
         run: |
           echo "PROTON_TAG=${PROTON_TAG:-GE-Proton10-9}" >> "$GITHUB_ENV"
-          echo "DXVK_TAG=${DXVK_TAG:-v2.4}"             >> "$GITHUB_ENV"
-          echo "VKD3D_TAG=${VKD3D_TAG:-v2.13}"         >> "$GITHUB_ENV"
+          echo "DXVK_TAG=${DXVK_TAG:-v2.4}" >> "$GITHUB_ENV"
+          echo "VKD3D_TAG=${VKD3D_TAG:-v2.13}" >> "$GITHUB_ENV"
 
       - name: Cache upstream tarballs
         uses: actions/cache@v4
@@ -84,7 +79,6 @@ jobs:
           PROTON_TAG: ${{ env.PROTON_TAG }}
           DXVK_TAG:   ${{ env.DXVK_TAG }}
           VKD3D_TAG:  ${{ env.VKD3D_TAG }}
-        shell: bash
         run: |
           set -euo pipefail
           bash scripts/ci/fetch_components.sh
@@ -93,7 +87,6 @@ jobs:
         env:
           RF_TAG: ${{ env.TAG }}
           GITHUB_REF_NAME: ${{ env.TAG }}
-        shell: bash
         run: |
           set -euo pipefail
           bash scripts/rf_pack_runtime.sh

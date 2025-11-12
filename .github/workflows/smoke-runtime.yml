@@ -41,7 +41,6 @@ jobs:
           set -euxo pipefail
           cd "$STEAMCMDDIR"
           ./steamcmd.sh +login anonymous +app_info_update 1 +app_status 480 +quit | tee "$GITHUB_WORKSPACE/smoke-steamcmd.log"
-          # PASS hints
           grep -E "Connecting anonymously|Already logged in" "$GITHUB_WORKSPACE/smoke-steamcmd.log" >/dev/null
 
       - name: Upload smoke log
