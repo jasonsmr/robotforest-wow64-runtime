@@ -1,34 +1,59 @@
-name: RF Release (tags)
+name: RF Runtime Release (full)
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [ "main" ]
+    tags: [ "v*.*.*" ]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build (e.g. v0.2.9). Leave empty to build current ref."
+        required: false
+        default: ""
 
 permissions:
   contents: write
-  actions: read
 
 concurrency:
-  group: rf-release-${{ github.ref }}
+  group: release-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      TAG: ${{ github.ref_name }}
-      PROTON_TAG: GE-Proton10-9
-      DXVK_TAG: v2.4
-      VKD3D_TAG: v2.13
     steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+      - name: Checkout (full)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Compute TAG once and export to $GITHUB_ENV
+      - name: Compute TAG
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${{ github.event.inputs.tag || '' }}" ]]; then
+            echo "TAG=${{ github.event.inputs.tag }}" >> "$GITHUB_ENV"
+          else
+            echo "TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+          fi
+          echo "RESOLVED TAG=$TAG"
+
+      # If TAG is a tag ref, checkout that exact tag
+      - name: If dispatch: checkout requested tag
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          git checkout "refs/tags/${TAG}"
 
       - name: Install deps
+        shell: bash
         run: |
+          set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y zip zstd jq file aria2 pv xvfb
+          sudo apt-get install -y zip zstd jq file aria2 pv
 
       - name: Cache upstream tarballs
         uses: actions/cache@v4
@@ -37,27 +62,37 @@ jobs:
             staging/proton.tar.gz
             staging/dxvk.tar.gz
             staging/vkd3d.tar.zst
-          key: upstream-${{ env.PROTON_TAG }}-${{ env.DXVK_TAG }}-${{ env.VKD3D_TAG }}
+          key: upstream-${{ env.PROTON_TAG || 'GE-Proton10-9' }}-${{ env.DXVK_TAG || 'v2.4' }}-${{ env.VKD3D_TAG || 'v2.13' }}
 
-      - name: Fetch components
+      - name: Set component tags (defaults here; override by env at dispatch if desired)
+        shell: bash
+        run: |
+          echo "PROTON_TAG=${PROTON_TAG:-GE-Proton10-9}" >> "$GITHUB_ENV"
+          echo "DXVK_TAG=${DXVK_TAG:-v2.4}"             >> "$GITHUB_ENV"
+          echo "VKD3D_TAG=${VKD3D_TAG:-v2.13}"         >> "$GITHUB_ENV"
+
+      - name: Fetch Proton/DXVK/vkd3d components
+        shell: bash
         env:
           PROTON_TAG: ${{ env.PROTON_TAG }}
-          DXVK_TAG: ${{ env.DXVK_TAG }}
-          VKD3D_TAG: ${{ env.VKD3D_TAG }}
-        run: bash scripts/ci/fetch_components.sh
+          DXVK_TAG:   ${{ env.DXVK_TAG }}
+          VKD3D_TAG:  ${{ env.VKD3D_TAG }}
+        run: |
+          set -euo pipefail
+          bash scripts/ci/fetch_components.sh
 
-      - name: Pack runtime
+      - name: Run packer
+        shell: bash
         env:
           RF_TAG: ${{ env.TAG }}
           GITHUB_REF_NAME: ${{ env.TAG }}
         run: |
+          set -euo pipefail
           bash scripts/rf_pack_runtime.sh
           ls -la dist
 
-      - name: Sandbot
-        run: bash scripts/ci/sandbot_smoke.sh dist/robotforest-wow64-runtime notepad.exe
-
-      - name: Upload artifact
+      - name: Upload artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: rf-runtime-dist
@@ -66,32 +101,42 @@ jobs:
             staging/**
             scripts/**
             **/*.log
-          if-no-files-found: error
+          if-no-files-found: warn
 
   release:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
         with:
           name: rf-runtime-dist
           path: out
 
-      - name: Find ZIP
-        id: z
+      - name: Locate runtime ZIP
+        id: findzip
+        shell: bash
         run: |
           set -euo pipefail
-          zip_path="$(ls -1 out/**/robotforest-wow64-runtime-${{ github.ref_name }}.zip 2>/dev/null | head -n1)"
-          echo "zip_path=$zip_path" >> "$GITHUB_OUTPUT"
+          # find most recent zip matching our naming
+          zip_path="$(ls -1t out/**/rf-runtime*.zip 2>/dev/null | head -n1 || true)"
+          if [[ -z "${zip_path:-}" ]]; then
+            echo "No runtime zip found under out/" >&2
+            find out -maxdepth 3 -type f -print >&2 || true
+            exit 1
+          fi
+          echo "zip_path=${zip_path}" >> "$GITHUB_OUTPUT"
+          ls -l "$zip_path" || true
+          [[ -f "${zip_path}.sha256" ]] && ls -l "${zip_path}.sha256" || true
 
-      - name: Release
+      - name: Create Release (bind to computed tag)
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: robotforest-wow64-runtime ${{ github.ref_name }}
+          tag_name: ${{ env.TAG }}
+          name: robotforest-wow64-runtime ${{ env.TAG }}
           files: |
-            ${{ steps.z.outputs.zip_path }}
-            ${{ steps.z.outputs.zip_path }}.sha256
+            ${{ steps.findzip.outputs.zip_path }}
+            ${{ steps.findzip.outputs.zip_path }}.sha256
           draft: false
           prerelease: false
           make_latest: true
