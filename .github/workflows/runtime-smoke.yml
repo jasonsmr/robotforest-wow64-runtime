@@ -70,17 +70,11 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p runtime_extract
-
-          ART="${{ steps.findart.outputs.art }}"
-
-          if [[ "$ART" == *.tar.zst ]]; then
-            # Use --long=31 to match pack-time zstd settings
-            tar --use-compress-program="zstd --long=31 -d" \
-              -C runtime_extract -xf "$ART"
+          if [[ "${{ steps.findart.outputs.art }}" == *.tar.zst ]]; then
+            tar --use-compress-program="zstd --long=31 -d" -C runtime_extract -xf "${{ steps.findart.outputs.art }}"
           else
-            unzip -q "$ART" -d runtime_extract
+            unzip -q "${{ steps.findart.outputs.art }}" -d runtime_extract
           fi
-
           find runtime_extract -maxdepth 3 -type d -print
 
       - name: Conditional smoke via artifact (always writes smoke.log)
