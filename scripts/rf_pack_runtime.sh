@@ -1,75 +1,59 @@
-cd ~/android/robotforest-wow64-runtime
+#!/usr/bin/env bash
+set -Eeuo pipefail
 
-cat > scripts/rf_pack_runtime.sh <<'EOF'
-#!/data/data/com.termux/files/usr/bin/bash
-# rf_pack_runtime.sh
-# Pack the committed rf_runtime tree (built on Termux) into reproducible tar.zst + zip
-# Outputs:
-#   dist/rf-runtime-dev.tar.zst(.sha256)
-#   dist/rf-runtime-dev.zip(.sha256)
+trap 'echo "[pack] ERROR at line ${LINENO}" >&2' ERR
 
-set -euo pipefail
+# Repo root = parent of this script directory
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
+RUNTIME_DIR="${ROOT}/staging/rf_runtime"
+DIST="${ROOT}/dist"
 
-REPO="$(CDPATH= cd -- "$(dirname -- "$0")"/.. && pwd)"
-STAGE="${REPO}/staging"
-ROOT="${STAGE}/rf_runtime"
-DIST="${REPO}/dist"
+echo "[pack] rf_runtime root: ${RUNTIME_DIR}"
 
-mkdir -p "${DIST}"
-
-if [[ ! -d "${ROOT}" ]]; then
-  echo "[pack] ERROR: rf_runtime tree missing at: ${ROOT}" >&2
+if [[ ! -d "${RUNTIME_DIR}" ]]; then
+  echo "[pack] ERROR: runtime dir not found: ${RUNTIME_DIR}" >&2
   exit 1
 fi
 
-echo "[pack] rf_runtime root: ${ROOT}"
+mkdir -p "${DIST}"
 
-# Rebuild MANIFEST.SHA256 deterministically
-MANIFEST="${STAGE}/MANIFEST.SHA256"
+# Write MANIFEST.SHA256 inside rf_runtime
 echo "[pack] Writing MANIFEST.SHA256"
 (
-  cd "${ROOT}"
-  LC_ALL=C find . -type f -print0 | sort -z | xargs -0 sha256sum
-) > "${MANIFEST}"
-
-# Fixed, boring output names (branch-independent)
-BASE="rf-runtime-dev"
-TAR="${DIST}/${BASE}.tar.zst"
-ZIP="${DIST}/${BASE}.zip"
-
-echo "[pack] Creating ${TAR}"
-(
-  cd "${STAGE}"
-  tar --sort=name \
-      --mtime='UTC 2020-01-01' \
-      --owner=0 --group=0 --numeric-owner \
-      -I 'zstd -19 --long=31' \
-      -cf "${TAR}" \
-      MANIFEST.SHA256 \
-      rf_runtime
+  cd "${RUNTIME_DIR}"
+  # deterministic ordering
+  find . -type f -print0 \
+    | LC_ALL=C sort -z \
+    | xargs -0 sha256sum > MANIFEST.SHA256
 )
 
-echo "[pack] Creating ${TAR}.sha256"
+TAR="${DIST}/rf-runtime-dev.tar.zst"
+TAR_SHA="${TAR}.sha256"
+ZIP="${DIST}/rf-runtime-dev.zip"
+ZIP_SHA="${ZIP}.sha256"
+
+echo "[pack] Creating ${TAR}"
+tar --use-compress-program="zstd --long=31 -T0" \
+    -cf "${TAR}" \
+    -C "${RUNTIME_DIR}" .
+
+echo "[pack] Creating ${TAR_SHA}"
 (
   cd "${DIST}"
-  sha256sum "$(basename "${TAR}")" > "${TAR}.sha256"
+  sha256sum "$(basename "${TAR}")" > "$(basename "${TAR_SHA}")"
 )
 
 echo "[pack] Creating ${ZIP}"
 (
-  cd "${STAGE}"
-  # zip doesn't have the same nice determinism knobs, but that's OK for now
-  zip -rq "${ZIP}" MANIFEST.SHA256 rf_runtime
+  cd "${RUNTIME_DIR}"
+  zip -r "${ZIP}" . > /dev/null
 )
 
-echo "[pack] Creating ${ZIP}.sha256"
+echo "[pack] Creating ${ZIP_SHA}"
 (
   cd "${DIST}"
-  sha256sum "$(basename "${ZIP}")" > "${ZIP}.sha256"
+  sha256sum "$(basename "${ZIP}")" > "$(basename "${ZIP_SHA}")"
 )
 
 echo "[pack] [ok] built:"
-ls -lh "${TAR}" "${TAR}.sha256" "${ZIP}" "${ZIP}.sha256"
-EOF
-
-chmod +x scripts/rf_pack_runtime.sh
+ls -l "${TAR}" "${TAR_SHA}" "${ZIP}" "${ZIP_SHA}"
