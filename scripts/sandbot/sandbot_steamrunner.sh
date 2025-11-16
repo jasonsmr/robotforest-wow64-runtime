@@ -1,4 +1,4 @@
-#!/data/data/com.termux/files/usr/bin/env bash
+#!/usr/bin/env bash
 # Minimal, conservative install driver for SteamCMD + runtime sanity on device.
 set -euo pipefail
 

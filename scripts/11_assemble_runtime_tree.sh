@@ -1,4 +1,4 @@
-#!/data/data/com.termux/files/usr/bin/env bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 ROOT="${ROOT:-$HOME/android/robotforest-wow64-runtime}"
