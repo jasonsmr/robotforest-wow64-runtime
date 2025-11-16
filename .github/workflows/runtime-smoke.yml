@@ -1,23 +1,14 @@
 name: Runtime Smoke (artifact extraction + conditional run)
 
 on:
+  workflow_dispatch:
   push:
-    branches: ["ci/**"]
-  pull_request:
-    branches: ["main", "ci/**"]
-  workflow_dispatch: {}
-
-permissions:
-  contents: read
-
-concurrency:
-  group: runtime-smoke-${{ github.ref }}
-  cancel-in-progress: true
+    branches:
+      - ci/productionize
 
 jobs:
-  smoke-runtime:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
+  runtime-smoke:
+    runs-on: ubuntu-24.04
     env:
       DEBIAN_FRONTEND: noninteractive
 
@@ -25,113 +16,38 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Tools
+      - name: Install tools (zstd, unzip, curl)
         run: |
           set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y zstd unzip ca-certificates curl lib32gcc-s1
+          sudo apt-get install -y zstd unzip ca-certificates curl
 
-      - name: Build a fresh runtime artifact (overlay + pins)
-        run: |
-          set -euxo pipefail
-          # Verify pins if present (non-fatal)
-          bash scripts/ci/fetch_components.sh --verify-only || true
-          # Build tar.zst + zip; Wine checks only warn by default
-          bash scripts/rf_pack_runtime.sh
-
-      - name: Locate artifact
-        id: findart
-        shell: bash
-        run: |
-          set -euo pipefail
-          ZIP="$(ls -1t dist/rf-runtime-*.zip 2>/dev/null | head -n1 || true)"
-          ZST="$(ls -1t dist/rf-runtime-*.tar.zst 2>/dev/null | head -n1 || true)"
-
-          if [[ -n "$ZST" ]]; then
-            echo "art=$ZST" >> "$GITHUB_OUTPUT"
-            echo "sha=$ZST.sha256" >> "$GITHUB_OUTPUT"
-            ls -l "$ZST" "$ZST.sha256"
-          elif [[ -n "$ZIP" ]]; then
-            echo "art=$ZIP" >> "$GITHUB_OUTPUT"
-            echo "sha=$ZIP.sha256" >> "$GITHUB_OUTPUT"
-            ls -l "$ZIP" "$ZIP.sha256"
-          else
-            echo "No dist artifact found" >&2
-            ls -l dist || true
-            exit 1
-          fi
-
-      - name: Verify artifact
-        run: |
-          set -euxo pipefail
-          bash scripts/rf_verify_runtime.sh "${{ steps.findart.outputs.art }}" "${{ steps.findart.outputs.sha }}"
-
-      - name: Extract runtime to workspace
-        run: |
-          set -euxo pipefail
-          mkdir -p runtime_extract
-          if [[ "${{ steps.findart.outputs.art }}" == *.tar.zst ]]; then
-            tar --use-compress-program="zstd --long=31 -d" -C runtime_extract -xf "${{ steps.findart.outputs.art }}"
-          else
-            unzip -q "${{ steps.findart.outputs.art }}" -d runtime_extract
-          fi
-          find runtime_extract -maxdepth 3 -type d -print
-
-      - name: Conditional smoke via artifact (always writes smoke.log)
-        run: |
-          set -eux
-          : > smoke.log
-
-          RDIR="runtime_extract/rf_runtime"
-          if [[ ! -d "$RDIR" ]]; then
-            if [[ -d "runtime_extract/runtime" ]]; then
-              RDIR="runtime_extract/runtime"
-            fi
-          fi
-
-          echo "Runtime extracted to: ${RDIR}" | tee -a smoke.log
-          ls -la "${RDIR}" | tee -a smoke.log || true
-
-          # Prefer Wine-based smoke if runners exist
-          if [[ -x "${RDIR}/bin/wine64.sh" && -d "${RDIR}/wine64" ]]; then
-            echo "Found wine64 runner — placeholder smoke (command discovery only)." | tee -a smoke.log
-            # Don't fail if wine64 --version is noisy
-            set +e
-            "${RDIR}/bin/wine64.sh" --version >> smoke.log 2>&1
-            RC=$?
-            set -e
-            echo "wine64 --version exit code: $RC" | tee -a smoke.log
-            exit 0
-          fi
-
-          echo "Wine not present or not runnable — fallback to Linux SteamCMD smoke." | tee -a smoke.log
-
-          mkdir -p "$HOME/steamcmd"
-          cd "$HOME/steamcmd"
-
-          curl -fsSL -o steamcmd_linux.tar.gz \
-            https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz
-          tar -xzf steamcmd_linux.tar.gz
-
-          set +e
-          ./steamcmd.sh \
-            +login anonymous \
-            +app_info_update 1 \
-            +app_status 480 \
-            +quit | tee -a "$GITHUB_WORKSPACE/smoke.log"
-          RC=$?
-          set -e
-          echo "steamcmd exit code: $RC" | tee -a "$GITHUB_WORKSPACE/smoke.log"
-
-          if ! grep -E "Connecting anonymously|Already logged in" "$GITHUB_WORKSPACE/smoke.log" >/dev/null; then
-            echo "Expected login message not found in smoke.log" | tee -a "$GITHUB_WORKSPACE/smoke.log"
-            exit 1
-          fi
-
-      - name: Upload smoke log
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Download rf-runtime-dev artifact
+        uses: actions/download-artifact@v4
         with:
-          name: runtime-smoke-log
-          path: smoke.log
-          if-no-files-found: warn
+          name: rf-runtime-dev
+          path: dist
+
+      - name: Verify rf-runtime-dev.tar.zst (STRICT)
+        run: |
+          set -euxo pipefail
+          RF_STRICT_WINE=1 bash scripts/rf_verify_runtime.sh dist/rf-runtime-dev.tar.zst
+
+      - name: Extract rf-runtime-dev.tar.zst with long-window zstd
+        run: |
+          set -euxo pipefail
+          mkdir -p rf_runtime_extract
+          tar --use-compress-program="zstd --long=31 -T0" \
+              -xf dist/rf-runtime-dev.tar.zst \
+              -C rf_runtime_extract
+
+      # At this point rf_runtime_extract/ has the same layout you saw under rf_verify.b1dm2f
+      # (bin/, x86_64-linux/, i386-linux/, wine64, wine32, dxvk/, vkd3d/, etc.)
+      # Wire that into your smoke script as needed.
+
+      - name: Run sandbox smoke (Steam / Wine)
+        run: |
+          set -euxo pipefail
+          # Adjust this to whatever your smoke script expects:
+          export RF_RUNTIME_ROOT="${PWD}/rf_runtime_extract"
+          bash scripts/sandbot/sandbot_steamrunner.sh
