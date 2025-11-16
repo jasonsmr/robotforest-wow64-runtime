@@ -1,54 +1,43 @@
 name: RF Release (pack + verify)
 
 on:
+  workflow_dispatch:
   push:
-    branches: ["ci/**"]
-  workflow_dispatch: {}
-
-permissions:
-  contents: write
-
-concurrency:
-  group: release-core-${{ github.ref }}
-  cancel-in-progress: true
+    branches:
+      - ci/productionize
 
 jobs:
   pack-and-verify:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    runs-on: ubuntu-24.04
     env:
       DEBIAN_FRONTEND: noninteractive
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Tools
+      - name: Install packaging tools
         run: |
           set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y zstd unzip ca-certificates curl
+          sudo apt-get install -y zstd zip unzip ca-certificates curl
 
-      - name: Pack runtime
+      - name: Pack rf_runtime into dist/rf-runtime-dev.*
         run: |
           set -euxo pipefail
           bash scripts/rf_pack_runtime.sh
 
-      - name: Find artifact
-        id: find
+      - name: Verify rf-runtime-dev.tar.zst (STRICT)
         run: |
-          set -euo pipefail
-          ART="$(ls -1 dist/rf-runtime-*.tar.zst | tail -n1)"
-          echo "art=${ART}" >> "$GITHUB_OUTPUT"
-          echo "sha=${ART}.sha256" >> "$GITHUB_OUTPUT"
-          ls -l "$ART" "$ART.sha256"
+          set -euxo pipefail
+          RF_STRICT_WINE=1 bash scripts/rf_verify_runtime.sh dist/rf-runtime-dev.tar.zst
 
-      - name: Verify artifact
-        run: bash scripts/rf_verify_runtime.sh "${{ steps.find.outputs.art }}" "${{ steps.find.outputs.sha }}"
-
-      - name: Upload artifacts
+      - name: Upload rf-runtime-dev artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: rf-runtime
+          name: rf-runtime-dev
           path: |
-            ${{ steps.find.outputs.art }}
-            ${{ steps.find.outputs.sha }}
+            dist/rf-runtime-dev.tar.zst
+            dist/rf-runtime-dev.tar.zst.sha256
+            dist/rf-runtime-dev.zip
+            dist/rf-runtime-dev.zip.sha256
