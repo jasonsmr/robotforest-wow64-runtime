@@ -1,70 +1,59 @@
 #!/usr/bin/env bash
-# sandbot_steamrunner.sh
-#
-# CI-friendly "Runtime Smoke" for robotforest-wow64-runtime.
-#
-# Mode A: structural-only smoke:
-#   - Assumes RF_RUNTIME_ROOT points at an extracted rf_runtime tree, e.g.:
-#       bin/
-#       x86_64-linux/
-#       i386-linux/
-#       wine64/
-#       wine32/
-#       dxvk/
-#       vkd3d/
-#
-#   - Verifies presence of key files/dirs only.
-#   - Does NOT:
-#       * unzip anything
-#       * assume an APK layout
-#       * talk to Steam
-#       * run wine / SteamCMD
-#
-# This script must be safe on:
-#   - GitHub Actions (Ubuntu)
-#   - Termux (Android) when RF_RUNTIME_ROOT is set
+set -euo pipefail
 
-set -Eeuo pipefail
+MODE="${SANDBOT_MODE:-A}"
 
-trap 'echo "[sandbot] ERROR at line ${LINENO}" >&2' ERR
+log() {
+  printf '[sandbot] %s\n' "$*" >&2
+}
 
-# -------------------------------------------------------------------
-# Resolve RF_RUNTIME_ROOT
-# -------------------------------------------------------------------
-if [[ -n "${RF_RUNTIME_ROOT:-}" ]]; then
-  RUNTIME_ROOT="${RF_RUNTIME_ROOT}"
-else
-  # Fallback for local manual runs
-  RUNTIME_ROOT="${PWD}/rf_runtime"
-fi
+warn() {
+  printf '[sandbot][WARN] %s\n' "$*" >&2
+}
 
-echo "[sandbot] RF_RUNTIME_ROOT: ${RUNTIME_ROOT}"
-
-if [[ ! -d "${RUNTIME_ROOT}" ]]; then
-  echo "[sandbot] ERROR: runtime root does not exist: ${RUNTIME_ROOT}" >&2
+die() {
+  printf '[sandbot][ERROR] %s\n' "$*" >&2
   exit 1
+}
+
+# --- Resolve RF_RUNTIME_ROOT -------------------------------------------------
+
+if [[ -z "${RF_RUNTIME_ROOT:-}" ]]; then
+  die "RF_RUNTIME_ROOT is not set"
 fi
 
-# Normalize to absolute path
-RUNTIME_ROOT="$(cd "${RUNTIME_ROOT}" && pwd)"
-echo "[sandbot] normalized RF_RUNTIME_ROOT: ${RUNTIME_ROOT}"
+RT="$(cd "${RF_RUNTIME_ROOT}" 2>/dev/null && pwd || true)"
+if [[ -z "${RT}" || ! -d "${RT}" ]]; then
+  die "RF_RUNTIME_ROOT does not point to a directory: ${RF_RUNTIME_ROOT}"
+fi
 
-# -------------------------------------------------------------------
-# Required layout for Mode A (structural)
-# -------------------------------------------------------------------
-declare -a REQUIRED_FILES=(
+log "RF_RUNTIME_ROOT: ${RF_RUNTIME_ROOT}"
+log "normalized RF_RUNTIME_ROOT: ${RT}"
+
+# --- Mode A: structural checks (always run) ----------------------------------
+
+log "=== required files ==="
+REQUIRED_FILES=(
   "bin/wine64.sh"
   "bin/wine32on64.sh"
   "bin/steam-win.sh"
-
   "x86_64-linux/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
   "x86_64-linux/lib/x86_64-linux-gnu/libc.so.6"
-
   "i386-linux/lib/i386-linux-gnu/ld-linux.so.2"
   "i386-linux/lib/i386-linux-gnu/libc.so.6"
 )
 
-declare -a REQUIRED_DIRS=(
+for rel in "${REQUIRED_FILES[@]}"; do
+  path="${RT}/${rel}"
+  if [[ -f "${path}" ]]; then
+    log "ok   ${path}"
+  else
+    die "MISS ${path}"
+  fi
+done
+
+log "=== required dirs ==="
+REQUIRED_DIRS=(
   "wine64"
   "wine32"
   "dxvk/x64"
@@ -73,46 +62,74 @@ declare -a REQUIRED_DIRS=(
   "vkd3d/x86"
 )
 
-echo "[sandbot] === required files ==="
-MISSING=0
-
-for rel in "${REQUIRED_FILES[@]}"; do
-  path="${RUNTIME_ROOT}/${rel}"
-  if [[ -f "${path}" ]]; then
-    echo "[sandbot] ok   ${path}"
-  else
-    echo "[sandbot] MISS ${path}" >&2
-    MISSING=1
-  fi
-done
-
-echo "[sandbot] === required dirs ==="
-
 for rel in "${REQUIRED_DIRS[@]}"; do
-  path="${RUNTIME_ROOT}/${rel}"
+  path="${RT}/${rel}"
   if [[ -d "${path}" ]]; then
-    echo "[sandbot] ok   ${path}"
+    log "ok   ${path}"
   else
-    echo "[sandbot] MISS ${path}" >&2
-    MISSING=1
+    die "MISS ${path}"
   fi
 done
 
-# Optional: enforce executability on wrapper scripts
-for rel in "bin/wine64.sh" "bin/wine32on64.sh" "bin/steam-win.sh"; do
-  path="${RUNTIME_ROOT}/${rel}"
-  if [[ -f "${path}" && ! -x "${path}" ]]; then
-    echo "[sandbot] WARN: wrapper not executable, fixing: ${path}"
-    chmod +x "${path}" || {
-      echo "[sandbot] ERROR: failed to chmod +x ${path}" >&2
-      MISSING=1
-    }
-  fi
-done
-
-if [[ "${MISSING}" -ne 0 ]]; then
-  echo "[sandbot] FAIL: runtime layout is incomplete" >&2
-  exit 1
+# If Mode A only, we stop here (CI uses this path)
+if [[ "${MODE}" == "A" ]]; then
+  log "OK: structural runtime smoke (Mode A) passed."
+  exit 0
 fi
 
-echo "[sandbot] OK: structural runtime smoke (Mode A) passed."
+# --- Mode B: light functional check (local-only) -----------------------------
+
+log "Mode B requested (SANDBOT_MODE=${MODE})"
+
+# Heuristic: skip Mode B on GitHub runners
+if [[ -n "${CI:-}" ]]; then
+  log "CI environment detected (CI=${CI}); skipping Mode B functional checks."
+  log "OK: structural runtime smoke (Mode A) passed (Mode B skipped on CI)."
+  exit 0
+fi
+
+# Also skip Mode B on non-Termux hosts, just to be safe
+case "${HOME:-}" in
+  /data/data/com.termux/*) : ;; # Termux – OK
+  *)
+    log "Non-Termux HOME detected (${HOME}); skipping Mode B functional checks."
+    log "OK: structural runtime smoke (Mode A) passed (Mode B skipped)."
+    exit 0
+    ;;
+esac
+
+log "=== Mode B: local functional sanity ==="
+
+W64="${RT}/bin/wine64.sh"
+W32="${RT}/bin/wine32on64.sh"
+STEAM_WIN="${RT}/bin/steam-win.sh"
+
+# 1) Ensure wrappers are executable
+for f in "${W64}" "${W32}" "${STEAM_WIN}"; do
+  if [[ ! -x "${f}" ]]; then
+    die "wrapper not executable: ${f}"
+  fi
+  log "exec-ok ${f}"
+done
+
+soft_run() {
+  local label="$1"; shift
+  if "$@" >/dev/null 2>&1; then
+    log "${label} OK"
+  else
+    if [[ "${SANDBOT_STRICT_FUN:-0}" == "1" ]]; then
+      die "${label} FAILED (strict functional mode)"
+    else
+      warn "${label} failed (non-strict functional mode); continuing."
+    fi
+  fi
+}
+
+# 2) Very light version checks; by default they WARN on failure
+soft_run "wine64.sh --version" "${W64}" --version
+soft_run "wine32on64.sh --version" "${W32}" --version
+
+# Optional for later:
+# soft_run "steam-win.sh --help" "${STEAM_WIN}" --help
+
+log "OK: Mode B functional runtime smoke completed (non-strict)."
