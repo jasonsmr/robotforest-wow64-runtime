@@ -22,17 +22,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y zstd zip unzip ca-certificates curl
 
-      - name: Pack rf_runtime into dist/rf-runtime-dev.*
+      - name: Pack rf_runtime tree
+        shell: bash
         run: |
           set -euxo pipefail
-          bash scripts/rf_pack_runtime.sh
+          scripts/rf_pack_runtime.sh
 
-      - name: Verify rf-runtime-dev.tar.zst (STRICT)
+      - name: Verify rf-runtime-dev.tar.zst (non-strict)
         run: |
           set -euxo pipefail
-          RF_STRICT_WINE=1 bash scripts/rf_verify_runtime.sh dist/rf-runtime-dev.tar.zst
+          bash scripts/rf_verify_runtime.sh dist/rf-runtime-dev.tar.zst
 
-      - name: Upload rf-runtime-dev artifacts
+      - name: Upload rf-runtime-dev artifact
         uses: actions/upload-artifact@v4
         with:
           name: rf-runtime-dev

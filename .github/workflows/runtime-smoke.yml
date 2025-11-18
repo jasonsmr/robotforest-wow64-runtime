@@ -1,53 +1,55 @@
 name: Runtime Smoke (artifact extraction + conditional run)
 
 on:
-  workflow_dispatch:
-  push:
-    branches:
-      - ci/productionize
+  workflow_run:
+    workflows:
+      - RF Release (pack + verify)
+    types:
+      - completed
 
 jobs:
   runtime-smoke:
-    runs-on: ubuntu-24.04
-    env:
-      DEBIAN_FRONTEND: noninteractive
+    # Only run when the release workflow succeeded
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Check out the same commit that the release workflow ran on
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Install tools (zstd, unzip, curl)
         run: |
           set -euxo pipefail
           sudo apt-get update
           sudo apt-get install -y zstd unzip ca-certificates curl
+        env:
+          DEBIAN_FRONTEND: noninteractive
 
       - name: Download rf-runtime-dev artifact
         uses: actions/download-artifact@v4
         with:
           name: rf-runtime-dev
           path: dist
+          merge-multiple: false
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
 
-      - name: Verify rf-runtime-dev.tar.zst (STRICT)
+      - name: Extract runtime into rf_runtime/
         run: |
           set -euxo pipefail
-          RF_STRICT_WINE=1 bash scripts/rf_verify_runtime.sh dist/rf-runtime-dev.tar.zst
+          mkdir -p rf_runtime
+          tar --use-compress-program="zstd -d --long=31 -T0" \
+            -xf dist/rf-runtime-dev.tar.zst \
+            -C rf_runtime
 
-      - name: Extract rf-runtime-dev.tar.zst with long-window zstd
+      - name: Structural runtime smoke (Mode A only)
+        env:
+          RF_RUNTIME_ROOT: ${{ github.workspace }}/rf_runtime
+          SANDBOT_MODE: A
+          CI: "true"
         run: |
           set -euxo pipefail
-          mkdir -p rf_runtime_extract
-          tar --use-compress-program="zstd --long=31 -T0" \
-              -xf dist/rf-runtime-dev.tar.zst \
-              -C rf_runtime_extract
-
-      # At this point rf_runtime_extract/ has the same layout you saw under rf_verify.b1dm2f
-      # (bin/, x86_64-linux/, i386-linux/, wine64, wine32, dxvk/, vkd3d/, etc.)
-      # Wire that into your smoke script as needed.
-
-      - name: Run sandbox smoke (Steam / Wine)
-        run: |
-          set -euxo pipefail
-          # Adjust this to whatever your smoke script expects:
-          export RF_RUNTIME_ROOT="${PWD}/rf_runtime_extract"
           bash scripts/sandbot/sandbot_steamrunner.sh

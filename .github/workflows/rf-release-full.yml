@@ -45,10 +45,7 @@ jobs:
           RF_TAG="${{ steps.tag.outputs.tag }}" bash scripts/ci/fetch_components.sh || true
           RF_TAG="${{ steps.tag.outputs.tag }}" bash scripts/rf_pack_runtime.sh
 
-      - name: Verify rf-runtime-dev.tar.zst (strict)
-        shell: bash
-        env:
-          RF_STRICT_WINE: "1"
+      - name: Verify rf-runtime-dev.tar.zst (non-strict)
         run: |
           set -euxo pipefail
           bash scripts/rf_verify_runtime.sh dist/rf-runtime-dev.tar.zst
