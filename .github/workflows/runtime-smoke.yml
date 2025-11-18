@@ -3,34 +3,87 @@ name: Runtime Smoke (artifact extraction + conditional run)
 on:
   workflow_run:
     workflows: ["RF Release (pack + verify)"]
-    types: [completed]
+    types:
+      - completed
 
 jobs:
-  smoke:
+  runtime-smoke:
+    # Only run if the RF Release workflow completed successfully
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout matching commit
+        uses: actions/checkout@v4
+        with:
+          # Use the same commit that RF Release ran on
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Install tools (zstd, unzip, curl)
         run: |
-          set -eux
+          set -euxo pipefail
           sudo apt-get update
           sudo apt-get install -y zstd unzip ca-certificates curl
 
-      - name: Download rf-runtime-dev artifact from triggering run
-        uses: actions/download-artifact@v4
+      - name: Download rf-runtime-dev artifact from RF Release run
+        id: get-artifact
+        uses: actions/github-script@v7
         with:
-          name: rf-runtime-dev
-          path: dist
-          repository: ${{ github.repository }}
-          run-id: ${{ github.event.workflow_run.id }}
+          script: |
+            const run_id = context.payload.workflow_run.id;
+            const { owner, repo } = context.repo;
 
-      - name: Extract + Mode A structural smoke
+            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+              owner,
+              repo,
+              run_id,
+            });
+
+            const artifact = artifacts.data.artifacts.find(a => a.name === 'rf-runtime-dev');
+            if (!artifact) {
+              core.setFailed(`Artifact 'rf-runtime-dev' not found on run ${run_id}`);
+              return;
+            }
+
+            const download = await github.rest.actions.downloadArtifact({
+              owner,
+              repo,
+              artifact_id: artifact.id,
+              archive_format: 'zip',
+            });
+
+            const fs = require('fs');
+            const path = require('path');
+            const outPath = path.join(process.cwd(), 'rf-runtime-dev-artifact.zip');
+            fs.writeFileSync(outPath, Buffer.from(download.data));
+            core.setOutput('zip-path', outPath);
+
+      - name: Extract rf-runtime-dev artifact zip
+        run: |
+          set -euxo pipefail
+          mkdir -p dist
+          unzip -d dist "${{ steps.get-artifact.outputs.zip-path }}"
+
+      - name: Verify rf-runtime-dev.tar.zst (STRICT)
+        env:
+          RF_STRICT_WINE: "1"
+        run: |
+          set -euxo pipefail
+          scripts/rf_verify_runtime.sh dist/rf-runtime-dev.tar.zst
+
+      - name: Extract rf-runtime-dev into ./rf_runtime
         run: |
           set -euxo pipefail
           mkdir -p rf_runtime
           tar --use-compress-program="zstd -d --long=31 -T0" \
             -xf dist/rf-runtime-dev.tar.zst \
             -C rf_runtime
-          RF_RUNTIME_ROOT="$PWD/rf_runtime" SANDBOT_MODE=A bash scripts/sandbot/sandbot_steamrunner.sh
+
+      - name: Runtime structural smoke (Mode A)
+        env:
+          RF_RUNTIME_ROOT: "${{ github.workspace }}/rf_runtime"
+        run: |
+          set -euxo pipefail
+          scripts/sandbot/sandbot_steamrunner.sh
