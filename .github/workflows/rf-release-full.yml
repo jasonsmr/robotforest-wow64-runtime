@@ -31,62 +31,61 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Using TAG=${TAG}"
 
-      - name: Tools
+      - name: Install tools (zstd, zip, unzip, curl)
+        shell: bash
         run: |
           set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y zstd unzip ca-certificates curl
+          sudo apt-get install -y zstd zip unzip ca-certificates curl
 
       - name: Build runtime archive(s)
+        shell: bash
         run: |
           set -euxo pipefail
           RF_TAG="${{ steps.tag.outputs.tag }}" bash scripts/ci/fetch_components.sh || true
           RF_TAG="${{ steps.tag.outputs.tag }}" bash scripts/rf_pack_runtime.sh
 
-      - name: Locate asset
-        id: findasset
+      - name: Verify rf-runtime-dev.tar.zst (strict)
         shell: bash
-        run: |
-          set -euo pipefail
-          zip_path="$(ls -1t dist/rf-runtime-*.zip 2>/dev/null | head -n1 || true)"
-          zst_path="$(ls -1t dist/rf-runtime-*.tar.zst 2>/dev/null | head -n1 || true)"
-          if [[ -n "${zip_path}" ]]; then
-            echo "asset_path=${zip_path}" >> "$GITHUB_OUTPUT"
-            [[ -f "${zip_path}.sha256" ]] && echo "sha_path=${zip_path}.sha256" >> "$GITHUB_OUTPUT"
-            ls -l "${zip_path}" "${zip_path}.sha256" 2>/dev/null || true
-          elif [[ -n "${zst_path}" ]]; then
-            echo "asset_path=${zst_path}" >> "$GITHUB_OUTPUT"
-            [[ -f "${zst_path}.sha256" ]] && echo "sha_path=${zst_path}.sha256" >> "$GITHUB_OUTPUT"
-            ls -l "${zst_path}" "${zst_path}.sha256" 2>/dev/null || true
-          else
-            echo "No rf-runtime asset found under dist/" >&2
-            find dist -maxdepth 3 -type f -print >&2 || true
-            exit 1
-          fi
-
-      - name: Verify artifact
+        env:
+          RF_STRICT_WINE: "1"
         run: |
           set -euxo pipefail
-          if [[ -n "${{ steps.findasset.outputs.sha_path }}" ]]; then
-            bash scripts/rf_verify_runtime.sh "${{ steps.findasset.outputs.asset_path }}" "${{ steps.findasset.outputs.sha_path }}"
-          else
-            bash scripts/rf_verify_runtime.sh "${{ steps.findasset.outputs.asset_path }}"
-          fi
+          bash scripts/rf_verify_runtime.sh dist/rf-runtime-dev.tar.zst
+
+      - name: Upload rf-runtime-dev artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rf-runtime-dev
+          path: |
+            dist/rf-runtime-dev.tar.zst
+            dist/rf-runtime-dev.tar.zst.sha256
+            dist/rf-runtime-dev.zip
+            dist/rf-runtime-dev.zip.sha256
 
   release:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download rf-runtime-dev artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: rf-runtime-dev
+          path: dist
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.build.outputs.tag }}
           name: robotforest-wow64-runtime ${{ needs.build.outputs.tag }}
           files: |
-            ${{ needs.build.outputs.tag && format('dist/rf-runtime-{0}.zip', needs.build.outputs.tag) }}
-            ${{ needs.build.outputs.tag && format('dist/rf-runtime-{0}.zip.sha256', needs.build.outputs.tag) }}
-            ${{ needs.build.outputs.tag && format('dist/rf-runtime-{0}.tar.zst', needs.build.outputs.tag) }}
-            ${{ needs.build.outputs.tag && format('dist/rf-runtime-{0}.tar.zst.sha256', needs.build.outputs.tag) }}
+            dist/rf-runtime-dev.zip
+            dist/rf-runtime-dev.zip.sha256
+            dist/rf-runtime-dev.tar.zst
+            dist/rf-runtime-dev.tar.zst.sha256
           draft: false
           prerelease: false
           make_latest: true
