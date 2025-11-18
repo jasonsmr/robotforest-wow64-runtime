@@ -1,0 +1,40 @@
+name: RF Quick
+
+on:
+  push:
+    branches: ["ci/**"]
+  pull_request:
+    branches: ["main", "ci/**"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rf-quick-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Script syntax checks
+        run: |
+          set -euxo pipefail
+          test -f scripts/rf_pack_runtime.sh
+          test -f scripts/rf_verify_runtime.sh
+          bash -n scripts/rf_pack_runtime.sh
+          bash -n scripts/rf_verify_runtime.sh
+
+      - name: Overlay structure sanity
+        run: |
+          set -euxo pipefail
+          test -f staging/overlay/runtime/rf-env.sh
+          test -f staging/overlay/runtime/wine64/user.reg
+          test -f staging/overlay/runtime/wine64/system.reg
+          test -f staging/overlay/runtime/box64/box64.conf
+          test -f staging/overlay/runtime/dxvk/dxvk.conf

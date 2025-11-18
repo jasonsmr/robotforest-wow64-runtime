@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# rf-steamcmd-win — run Windows SteamCMD via Box64 + Wine inside this runtime
+set -euo pipefail
+
+RUNTIME_DIR="$(CDPATH= cd -- "$(dirname -- "$0")"/.. && pwd)"
+# shellcheck source=/dev/null
+. "${RUNTIME_DIR}/rf-env.sh"
+
+STEAM_EXE="${WINEPREFIX}/drive_c/steamcmd/steamcmd.exe"
+
+if [[ ! -f "${STEAM_EXE}" ]]; then
+  echo "ERROR: ${STEAM_EXE} not found. Add STEAMCMD_WIN_ZIP pin and run fetch --fetch." >&2
+  exit 1
+fi
+
+# Example: anonymous login + short status query (safe in CI)
+exec box64 wine64 "${STEAM_EXE}" +login anonymous +app_info_update 1 +app_status 480 +quit

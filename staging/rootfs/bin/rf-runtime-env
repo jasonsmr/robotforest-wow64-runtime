@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Export minimal runtime env; extend for WOW64/steam later
+export RF_RUNTIME_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+echo "RF_RUNTIME_DIR=${RF_RUNTIME_DIR}"

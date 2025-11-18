@@ -1,0 +1,9 @@
+c880b5076be2a9c968dc400b0cd6bbb506fa49066eb824138a211d27690f01f2  ./bin/rf-steamcmd-win
+13aeb29c87e3e5804f98ba3a2b081c9d12cdbf02fe4e96971ac95a09b7922b43  ./bin/rf-steamcmd-win.sh
+c0442cad68e3af9c85d4f313a272aa5bd8c1a87d10dc03033ef4efb0f295d6aa  ./box64/box64.conf
+ce4025de4f34abc5a073fad3501eb7cd1c44e1728cd1602157f00d7cf1768565  ./dxvk/dxvk.conf
+9da56b3ec046758a21385c1850c5beecb555f461ee08b91d18af6707ac049815  ./rf-env.sh
+528326e3802617144158ab88f45f1c86f8d52c8a58dce20b6c1ce26df994d3da  ./wine64/drive_c/steamcmd/placeholder.txt
+fc103a323d70caaac475ae1cfcacfd8eec4c6b1e130005c4793f2013b4b019f8  ./wine64/drive_c/steamcmd/steamcmd.exe
+c9e0419525618b4afef8fd86992f1e2e79b7d69b8aece72b975601993a04f161  ./wine64/system.reg
+88a79849772ce23a747b49c10975973bf1b36c7f35ddade66676955dc0f04edc  ./wine64/user.reg

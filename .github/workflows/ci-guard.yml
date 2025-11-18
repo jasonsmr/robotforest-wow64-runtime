@@ -1,0 +1,57 @@
+name: CI Guard
+
+on:
+  pull_request:
+    branches: [ "main", "ci/**" ]
+  push:
+    branches: [ "main", "ci/**" ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-guard-${{ github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      # Block direct pushes to main; require PRs
+      - name: Require PR (never push to main)
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        run: |
+          echo "Direct pushes to main are blocked. Use PRs." >&2
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      # Optional: bypass label for intentional golden updates
+      - name: Bypass label check
+        if: ${{ github.event_name == 'pull_request' }}
+        id: bypass
+        run: |
+          echo "bypass=$(
+            echo '${{ toJson(github.event.pull_request.labels) }}' \
+             | jq -r '.[].name' | grep -qx 'ci-override' && echo yes || echo no
+          )" >> "$GITHUB_OUTPUT"
+
+      # Golden drift comparison on PRs
+      - name: Compare against golden snapshot
+        if: ${{ github.event_name == 'pull_request' && steps.bypass.outputs.bypass != 'yes' }}
+        run: |
+          if [ ! -f .golden/files.sha256 ]; then
+            echo "No golden snapshot present; skipping." ; exit 0
+          fi
+          tmp="$(mktemp)"
+          cut -d' ' -f3- .golden/files.sha256 \
+            | sed 's|^\*||' \
+            | while read -r p; do
+                [ -f "$p" ] && sha256sum "$p" || true
+              done \
+            | sed 's| \*||' > "$tmp"
+          diff -u .golden/files.sha256 "$tmp" || {
+            echo "Drift detected vs .golden/files.sha256" >&2
+            exit 1
+          }
+

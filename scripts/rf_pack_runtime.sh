@@ -1,31 +1,59 @@
 #!/usr/bin/env bash
-set -euo pipefail
-# If RF_TAG (or GITHUB_REF_NAME) looks like vX.Y.Z, use it; else fall back to timestamp.
-TAG="${RF_TAG:-${GITHUB_REF_NAME:-}}"
-if [[ "${TAG:-}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  BASENAME="robotforest-wow64-runtime-${TAG}.zip"
-else
-  stamp="$(date -u +%Y%m%d-%H%M%S)"
-  BASENAME="robotforest-wow64-runtime-${stamp}.zip"
+set -Eeuo pipefail
+
+trap 'echo "[pack] ERROR at line ${LINENO}" >&2' ERR
+
+# Repo root = parent of this script directory
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
+RUNTIME_DIR="${ROOT}/staging/rf_runtime"
+DIST="${ROOT}/dist"
+
+echo "[pack] rf_runtime root: ${RUNTIME_DIR}"
+
+if [[ ! -d "${RUNTIME_DIR}" ]]; then
+  echo "[pack] ERROR: runtime dir not found: ${RUNTIME_DIR}" >&2
+  exit 1
 fi
 
-ROOT="$(pwd)"
-DIST="$ROOT/dist"
-mkdir -p "$DIST"
-OUT="$DIST/$BASENAME"
+mkdir -p "${DIST}"
 
-echo "[pack] assembling -> $OUT"
-# Include whatever your runtime needs:
-zip -r9 "$OUT" \
-  scripts/ \
-  staging/ \
-  README.md 2>/dev/null || true
+# Write MANIFEST.SHA256 inside rf_runtime
+echo "[pack] Writing MANIFEST.SHA256"
+(
+  cd "${RUNTIME_DIR}"
+  # deterministic ordering
+  find . -type f -print0 \
+    | LC_ALL=C sort -z \
+    | xargs -0 sha256sum > MANIFEST.SHA256
+)
 
-echo "[pack] wrote $OUT"
-ls -l "$DIST"
+TAR="${DIST}/rf-runtime-dev.tar.zst"
+TAR_SHA="${TAR}.sha256"
+ZIP="${DIST}/rf-runtime-dev.zip"
+ZIP_SHA="${ZIP}.sha256"
 
-# --- integrity ---
-if command -v sha256sum >/dev/null 2>&1; then
-  sha256sum "$OUT" > "$OUT.sha256"
-  echo "[pack] wrote $OUT.sha256"
-fi
+echo "[pack] Creating ${TAR}"
+tar --use-compress-program="zstd --long=31 -T0" \
+    -cf "${TAR}" \
+    -C "${RUNTIME_DIR}" .
+
+echo "[pack] Creating ${TAR_SHA}"
+(
+  cd "${DIST}"
+  sha256sum "$(basename "${TAR}")" > "$(basename "${TAR_SHA}")"
+)
+
+echo "[pack] Creating ${ZIP}"
+(
+  cd "${RUNTIME_DIR}"
+  zip -r "${ZIP}" . > /dev/null
+)
+
+echo "[pack] Creating ${ZIP_SHA}"
+(
+  cd "${DIST}"
+  sha256sum "$(basename "${ZIP}")" > "$(basename "${ZIP_SHA}")"
+)
+
+echo "[pack] [ok] built:"
+ls -l "${TAR}" "${TAR_SHA}" "${ZIP}" "${ZIP_SHA}"

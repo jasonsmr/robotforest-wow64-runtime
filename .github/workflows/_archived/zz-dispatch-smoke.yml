@@ -1,0 +1,14 @@
+name: Dispatch Smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "dispatcher is alive"
