@@ -3,8 +3,10 @@ name: Runtime Smoke (artifact extraction + conditional run)
 on:
   workflow_run:
     workflows: ["RF Release (pack + verify)"]
-    types:
-      - completed
+    types: [completed]
+  release:
+    types: [published]
+  workflow_dispatch:
 
 jobs:
   runtime-smoke:
