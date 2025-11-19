@@ -1,27 +1,105 @@
 name: Runtime Smoke (artifact extraction + conditional run)
 
 on:
+  # Auto-trigger when RF Release finishes
   workflow_run:
     workflows: ["RF Release (pack + verify)"]
     types: [completed]
+
+  # Optional: trigger when a GitHub Release is published
   release:
     types: [published]
+
+  # Manual button in the Actions UI or via `gh workflow run`
   workflow_dispatch:
 
 jobs:
   runtime-smoke:
-    # Only run if the RF Release workflow completed successfully
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-24.04
     env:
       DEBIAN_FRONTEND: noninteractive
 
     steps:
-      - name: Checkout matching commit
+      - name: Debug event context
+        run: |
+          echo "event_name=${{ github.event_name }}"
+          echo "ref=${{ github.ref }}"
+          echo "sha=${{ github.sha }}"
+
+      # Choose which RF Release run to use based on event type
+      - name: Resolve RF Release run id
+        id: resolve-run
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            let run_id;
+
+            if (context.eventName === 'workflow_run') {
+              // We were triggered directly by RF Release (pack + verify)
+              run_id = context.payload.workflow_run.id;
+              core.info(`Triggered by workflow_run; using upstream run id ${run_id}`);
+            } else if (context.eventName === 'release') {
+              // We were triggered by a GitHub Release; match by tag / sha
+              const tag = context.payload.release.tag_name;
+              core.info(`Triggered by release ${tag}; resolving matching RF Release run...`);
+
+              const runs = await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                workflow_id: 'rf-release-full.yml',
+                per_page: 50,
+              });
+
+              const match = runs.data.workflow_runs.find(r =>
+                r.head_sha === context.sha ||
+                (r.display_title && r.display_title.includes(tag))
+              );
+
+              if (!match) {
+                core.setFailed(`No RF Release (pack + verify) run found for release tag ${tag}`);
+                return;
+              }
+
+              run_id = match.id;
+              core.info(`Using RF Release run id ${run_id} for tag ${tag}`);
+            } else {
+              // workflow_dispatch: pick latest successful RF Release run on main
+              core.info('Triggered manually; selecting latest successful RF Release run on main...');
+
+              const runs = await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                workflow_id: 'rf-release-full.yml',
+                branch: 'main',
+                status: 'completed',
+                per_page: 20,
+              });
+
+              const match = runs.data.workflow_runs.find(r => r.conclusion === 'success');
+              if (!match) {
+                core.setFailed('No successful RF Release (pack + verify) runs found on main.');
+                return;
+              }
+
+              run_id = match.id;
+              core.info(`Using latest successful RF Release run id ${run_id} on main.`);
+            }
+
+            core.setOutput('run-id', String(run_id));
+
+      # Checkout:
+      # - workflow_run: match the exact commit RF Release built
+      # - others: normal default ref/sha
+      - name: Checkout matching commit (workflow_run)
+        if: github.event_name == 'workflow_run'
         uses: actions/checkout@v4
         with:
-          # Use the same commit that RF Release ran on
           ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Checkout current ref (release / manual)
+        if: github.event_name != 'workflow_run'
+        uses: actions/checkout@v4
 
       - name: Install tools (zstd, unzip, curl)
         run: |
@@ -34,8 +112,9 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const run_id = context.payload.workflow_run.id;
             const { owner, repo } = context.repo;
+            const run_id = Number('${{ steps.resolve-run.outputs.run-id }}');
+            core.info(`Fetching artifacts from RF Release run id ${run_id}...`);
 
             const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
               owner,
@@ -60,6 +139,7 @@ jobs:
             const path = require('path');
             const outPath = path.join(process.cwd(), 'rf-runtime-dev-artifact.zip');
             fs.writeFileSync(outPath, Buffer.from(download.data));
+            core.info(`Wrote artifact zip to ${outPath}`);
             core.setOutput('zip-path', outPath);
 
       - name: Extract rf-runtime-dev artifact zip
