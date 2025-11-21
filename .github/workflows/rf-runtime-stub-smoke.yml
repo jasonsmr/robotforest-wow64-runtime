@@ -1,0 +1,68 @@
+name: RF Stub Runtime Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'tools/host/**'
+      - 'scripts/rf_verify_runtime.sh'
+      - '.github/workflows/rf-runtime-stub-smoke.yml'
+
+jobs:
+  build-and-smoke-stub:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rsync zstd git
+
+      - name: Prepare deps directory
+        run: mkdir -p _deps
+
+      - name: Clone Wine 9.0 (rf)
+        run: |
+          cd _deps
+          git clone --depth 1 --branch wine-9.0 \
+            https://gitlab.winehq.org/wine/wine.git \
+            wine-9.0-rf
+
+      - name: Clone Proton-GE (rf)
+        run: |
+          cd _deps
+          git clone --depth 1 \
+            https://github.com/GloriousEggroll/proton-ge-custom.git \
+            proton-ge-rf
+
+      - name: Run rf-wine-build-host.sh (stub-only stage)
+        env:
+          WINE_SRC: ${{ github.workspace }}/_deps/wine-9.0-rf
+          PROTON_SRC: ${{ github.workspace }}/_deps/proton-ge-rf
+          OUT_ROOT: ${{ github.workspace }}/rf_runtime_host
+          ARCHIVE: dist/rf-runtime-dev.tar.zst
+        run: |
+          mkdir -p dist
+          bash tools/host/rf-wine-build-host.sh
+          echo "[rf/ci] Listing archive:"
+          ls -lh dist/rf-runtime-dev.tar.zst
+
+      - name: Verify stub runtime shape
+        run: |
+          bash scripts/rf_verify_runtime.sh dist/rf-runtime-dev.tar.zst
+
+      - name: Extract and list stub runtime (debug)
+        run: |
+          mkdir -p _runtime
+          zstd -d -c dist/rf-runtime-dev.tar.zst | tar -C _runtime -xvf -
+          echo "[rf/ci] runtime/ tree (depth 2):"
+          find _runtime -maxdepth 2 -type d | sort
+
+      - name: Upload stub runtime artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rf-runtime-dev-stub
+          path: dist/rf-runtime-dev.tar.zst
