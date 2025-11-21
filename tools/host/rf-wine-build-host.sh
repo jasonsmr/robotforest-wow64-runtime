@@ -114,8 +114,13 @@ echo "[rf/host] Staging tree created (dirs up to depth 3):"
 find "$OUT_ROOT" -maxdepth 3 -type d | sed "s|^$OUT_ROOT|runtime|"
 
 # Pack into tar.zst — this is what rf-runtime-get on Android expects.
+# Pack into tar.zst — this is what rf-runtime-get on Android expects.
 cd "$SCRIPT_DIR"
 ARCHIVE="${ARCHIVE:-"rf-runtime-dev.tar.zst"}"
+
+# Make script rerunnable
+rm -f "$ARCHIVE"
+
 echo
 echo "[rf/host] Creating archive $ARCHIVE ..."
 tar -C "$OUT_ROOT" -cf - . | zstd -T0 -19 -o "$ARCHIVE"
