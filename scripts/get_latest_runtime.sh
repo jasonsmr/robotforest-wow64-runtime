@@ -1,123 +1,97 @@
 #!/usr/bin/env bash
-
 # scripts/get_latest_runtime.sh
 #
+# Fetch the latest rf-runtime-dev release from GitHub, verify it, and extract
+# into a local runtime root.
+#
+# Env overrides:
+#   RF_RUNTIME_TAG   - explicit release tag (otherwise use latest)
+#   RF_RUNTIME_ROOT  - where to extract (default: $HOME/rf_runtime)
+#
+# This script assumes rf-runtime-dev.tar.zst was created by scripts/rf_pack_runtime.sh
+# using Termux-safe zstd settings (no --long=31).
+
 set -euo pipefail
 
-REPO_OWNER="jasonsmr"
-REPO_NAME="robotforest-wow64-runtime"
+OWNER="jasonsmr"
+REPO="robotforest-wow64-runtime"
 
-TAG=""
-DEST="${HOME}/rf_runtime"
-ASSET_KIND="tar.zst"  # or "zip"
+TAG="${RF_RUNTIME_TAG:-}"
+DEST_ROOT="${RF_RUNTIME_ROOT:-"$HOME/rf_runtime"}"
 
-usage() {
-  cat <<EOF
-Usage: $(basename "$0") [options]
+WORKDIR="${PWD}"
+TMPDIR="${WORKDIR}/_rf_latest_tmp"
 
-Options:
-  --dest DIR        Destination directory for the runtime (default: \$HOME/rf_runtime)
-  --tag TAG         Use a specific GitHub release tag (default: latest)
-  --asset KIND      Asset type: tar.zst | zip (default: tar.zst)
-  -h, --help        Show this help
+mkdir -p "$TMPDIR"
 
-Examples:
-  # Get latest release, extract into ~/rf_runtime
-  $(basename "$0")
-
-  # Get a specific tag
-  $(basename "$0") --tag main-20251119-053842 --dest ~/rf_runtime_test
-
-  # Use the zip asset instead of tar.zst
-  $(basename "$0") --asset zip
-EOF
-}
-
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --dest)
-      DEST="$2"; shift 2;;
-    --tag)
-      TAG="$2"; shift 2;;
-    --asset)
-      ASSET_KIND="$2"; shift 2;;
-    -h|--help)
-      usage; exit 0;;
-    *)
-      echo "Unknown argument: $1" >&2
-      usage
-      exit 1;;
-  esac
-done
-
-case "$ASSET_KIND" in
-  tar.zst) ASSET_NAME="rf-runtime-dev.tar.zst" ;;
-  zip)     ASSET_NAME="rf-runtime-dev.zip" ;;
-  *)
-    echo "Invalid --asset value: ${ASSET_KIND} (expected tar.zst or zip)" >&2
-    exit 1
-    ;;
-esac
-
-mkdir -p "$DEST"
-cd "$DEST"
-
-if [[ -z "${TAG}" ]]; then
+###############################################################################
+# Resolve release tag
+###############################################################################
+if [ -z "$TAG" ]; then
   echo "[rf] Fetching latest release tag from GitHub..."
-  if command -v jq >/dev/null 2>&1; then
-    TAG="$(curl -fsSL "https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest" | jq -r '.tag_name')"
-  else
-    TAG="$(curl -fsSL "https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest" \
-      | grep -m1 '"tag_name":' \
-      | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')"
+  # Avoid jq dependency; use grep/sed to pull tag_name
+  TAG="$(
+    curl -fsSL "https://api.github.com/repos/${OWNER}/${REPO}/releases/latest" \
+      | grep '"tag_name"' \
+      | head -n1 \
+      | sed 's/.*"tag_name": *"//; s/".*//'
+  )" || TAG=""
+
+  if [ -z "$TAG" ]; then
+    echo "[rf] ERROR: could not resolve latest release tag."
+    exit 1
   fi
 fi
 
-if [[ -z "${TAG}" || "${TAG}" == "null" ]]; then
-  echo "[rf] ERROR: Failed to determine release tag" >&2
-  exit 1
-fi
+echo "[rf] Using release tag: $TAG"
+echo
 
-echo "[rf] Using release tag: ${TAG}"
-BASE_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${TAG}"
+BASE_URL="https://github.com/${OWNER}/${REPO}/releases/download/${TAG}"
+TAR_NAME="rf-runtime-dev.tar.zst"
+SHA_NAME="rf-runtime-dev.tar.zst.sha256"
 
-ASSET_URL="${BASE_URL}/${ASSET_NAME}"
-SHA_URL="${ASSET_URL}.sha256"
+TAR_PATH="${TMPDIR}/${TAR_NAME}"
+SHA_PATH="${TMPDIR}/${SHA_NAME}"
 
-echo "[rf] Downloading ${ASSET_NAME}..."
-curl -fL "${ASSET_URL}" -o "${ASSET_NAME}.tmp"
+###############################################################################
+# Download artifacts
+###############################################################################
+echo "[rf] Downloading ${TAR_NAME}..."
+curl -fL "${BASE_URL}/${TAR_NAME}" -o "$TAR_PATH"
 
-echo "[rf] Downloading ${ASSET_NAME}.sha256..."
-curl -fL "${SHA_URL}" -o "${ASSET_NAME}.sha256.tmp"
+echo "[rf] Downloading ${SHA_NAME}..."
+curl -fL "${BASE_URL}/${SHA_NAME}" -o "$SHA_PATH"
 
-mv "${ASSET_NAME}.tmp" "${ASSET_NAME}"
-mv "${ASSET_NAME}.sha256.tmp" "${ASSET_NAME}.sha256"
-
+###############################################################################
+# Verify sha256
+###############################################################################
 echo "[rf] Verifying sha256..."
-# The .sha256 file is of the form: "<hash>  <filename>"
-if ! sha256sum -c "${ASSET_NAME}.sha256"; then
-  echo "[rf] ERROR: sha256 verification FAILED" >&2
-  exit 1
-fi
+(
+  cd "$TMPDIR"
+  sha256sum -c "$SHA_NAME"
+)
 echo "[rf] sha256 OK"
 
-echo "[rf] Extracting into: ${DEST}"
-case "$ASSET_KIND" in
-  tar.zst)
-    if tar --help 2>&1 | grep -q -- '-I program'; then
-      tar -I zstd -xvf "${ASSET_NAME}"
-    else
-      # fallback: zstd -d then tar
-      zstd -d -f "${ASSET_NAME}" -o "rf-runtime-dev.tar"
-      tar -xvf "rf-runtime-dev.tar"
-      rm -f "rf-runtime-dev.tar"
-    fi
-    ;;
-  zip)
-    unzip -o "${ASSET_NAME}"
-    ;;
-esac
+###############################################################################
+# Extract into DEST_ROOT
+###############################################################################
+echo "[rf] Extracting into: ${DEST_ROOT}"
 
+mkdir -p "$DEST_ROOT"
+
+# Use plain Termux-safe zstd; packer MUST NOT use --long=31.
+if ! zstd -d -c "$TAR_PATH" | tar -C "$DEST_ROOT" -xvf -; then
+  echo
+  echo "[rf] ERROR: failed to extract rf-runtime-dev.tar.zst"
+  echo "[rf] If you see 'Window size larger than maximum', the release was"
+  echo "[rf] built with an oversized zstd window. Update to a newer release"
+  echo "[rf] or rebuild rf-runtime-dev with scripts/rf_pack_runtime.sh."
+  exit 1
+fi
+
+echo
+echo "[rf] Extraction complete. Runtime layout (depth <= 2):"
+find "$DEST_ROOT" -maxdepth 2 -type d | sed "s|$HOME||"
+
+echo
 echo "[rf] Done."
-echo "[rf] Runtime contents should now be under: ${DEST}"
-echo "[rf] e.g. you should see bin/wine64.sh, bin/wine32on64.sh, bin/steam-win.sh"
