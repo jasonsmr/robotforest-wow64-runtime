@@ -1,59 +1,94 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
+# scripts/rf_pack_runtime.sh
+#
+# Build rf-runtime-dev.{tar.zst,zip} from the staging runtime tree.
+#
+# Input tree:
+#   staging/rf_runtime/
+#     bin/
+#     dxvk/
+#     vkd3d/
+#     wine32/
+#     wine64/
+#     x86_64-linux/
+#     i386-linux/
+#     prefix/
+#     proton/
+#
+# Outputs:
+#   dist/rf-runtime-dev.tar.zst
+#   dist/rf-runtime-dev.tar.zst.sha256
+#   dist/rf-runtime-dev.zip
+#   dist/rf-runtime-dev.zip.sha256
+#
+# IMPORTANT: This script uses ONLY standard zstd options to keep the window
+# size small enough for Termux's zstd to decode. NO --long=31 here.
 
-trap 'echo "[pack] ERROR at line ${LINENO}" >&2' ERR
+set -euo pipefail
 
-# Repo root = parent of this script directory
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
-RUNTIME_DIR="${ROOT}/staging/rf_runtime"
-DIST="${ROOT}/dist"
+# Root of the repo
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-echo "[pack] rf_runtime root: ${RUNTIME_DIR}"
+STAGING="$ROOT/staging/rf_runtime"
+DIST="$ROOT/dist"
 
-if [[ ! -d "${RUNTIME_DIR}" ]]; then
-  echo "[pack] ERROR: runtime dir not found: ${RUNTIME_DIR}" >&2
+TAG="${RF_TAG:-dev}"
+
+echo "[rf/pack] Using:"
+echo "  ROOT    = $ROOT"
+echo "  STAGING = $STAGING"
+echo "  DIST    = $DIST"
+echo "  RF_TAG  = $TAG"
+echo
+
+if [ ! -d "$STAGING" ]; then
+  echo "[rf/pack] ERROR: staging tree not found: $STAGING"
   exit 1
 fi
 
-mkdir -p "${DIST}"
+mkdir -p "$DIST"
 
-# Write MANIFEST.SHA256 inside rf_runtime
-echo "[pack] Writing MANIFEST.SHA256"
+TAR="$DIST/rf-runtime-dev.tar.zst"
+ZIP="$DIST/rf-runtime-dev.zip"
+
+# Clean previous outputs
+rm -f \
+  "$TAR" "$TAR.sha256" \
+  "$ZIP" "$ZIP.sha256"
+
+echo "[rf/pack] Staging layout (depth <= 2):"
+find "$STAGING" -maxdepth 2 -type d | sed "s|$ROOT||"
+echo
+
+###############################################################################
+# Build rf-runtime-dev.tar.zst
+###############################################################################
+echo "[rf/pack] Building $TAR ..."
+# NOTE: No --long=31 here; keep window Termux-friendly.
+tar -C "$STAGING" -cf - . | zstd -T0 -19 -o "$TAR"
+
+echo "[rf/pack] Computing sha256 for tar.zst ..."
 (
-  cd "${RUNTIME_DIR}"
-  # deterministic ordering
-  find . -type f -print0 \
-    | LC_ALL=C sort -z \
-    | xargs -0 sha256sum > MANIFEST.SHA256
+  cd "$DIST"
+  sha256sum "$(basename "$TAR")" > "$(basename "$TAR").sha256"
 )
 
-TAR="${DIST}/rf-runtime-dev.tar.zst"
-TAR_SHA="${TAR}.sha256"
-ZIP="${DIST}/rf-runtime-dev.zip"
-ZIP_SHA="${ZIP}.sha256"
-
-echo "[pack] Creating ${TAR}"
-tar --use-compress-program="zstd --long=31 -T0" \
-    -cf "${TAR}" \
-    -C "${RUNTIME_DIR}" .
-
-echo "[pack] Creating ${TAR_SHA}"
+###############################################################################
+# Build rf-runtime-dev.zip
+###############################################################################
+echo "[rf/pack] Building $ZIP ..."
 (
-  cd "${DIST}"
-  sha256sum "$(basename "${TAR}")" > "$(basename "${TAR_SHA}")"
+  cd "$STAGING"
+  # The archive root is ".", to match tar layout (bin/, dxvk/, etc.).
+  zip -9r "$ZIP" .
 )
 
-echo "[pack] Creating ${ZIP}"
+echo "[rf/pack] Computing sha256 for zip ..."
 (
-  cd "${RUNTIME_DIR}"
-  zip -r "${ZIP}" . > /dev/null
+  cd "$DIST"
+  sha256sum "$(basename "$ZIP")" > "$(basename "$ZIP").sha256"
 )
 
-echo "[pack] Creating ${ZIP_SHA}"
-(
-  cd "${DIST}"
-  sha256sum "$(basename "${ZIP}")" > "$(basename "${ZIP_SHA}")"
-)
-
-echo "[pack] [ok] built:"
-ls -l "${TAR}" "${TAR_SHA}" "${ZIP}" "${ZIP_SHA}"
+echo
+echo "[rf/pack] Done. Artifacts:"
+ls -lh "$DIST"/rf-runtime-dev.tar.zst* "$DIST"/rf-runtime-dev.zip* || true
