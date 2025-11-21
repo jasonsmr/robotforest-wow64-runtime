@@ -1,0 +1,56 @@
+name: rf-wine-host-runtime
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'tools/host/rf-wine-build-host.sh'
+      - '.github/workflows/rf-wine-host.yml'
+
+jobs:
+  build-runtime-stub:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rsync zstd git
+
+      - name: Prepare deps directory
+        run: mkdir -p _deps
+
+      - name: Clone Wine 9.0 (rf)
+        run: |
+          cd _deps
+          git clone --depth 1 --branch wine-9.0 \
+            https://gitlab.winehq.org/wine/wine.git \
+            wine-9.0-rf
+
+      - name: Clone Proton-GE (rf)
+        run: |
+          cd _deps
+          git clone --depth 1 \
+            https://github.com/GloriousEggroll/proton-ge-custom.git \
+            proton-ge-rf
+
+      - name: Run rf-wine-build-host.sh (stub-only stage)
+        env:
+          WINE_SRC: ${{ github.workspace }}/_deps/wine-9.0-rf
+          PROTON_SRC: ${{ github.workspace }}/_deps/proton-ge-rf
+          OUT_ROOT: ${{ github.workspace }}/rf_runtime_host
+          ARCHIVE: rf-runtime-dev.tar.zst
+        run: |
+          bash tools/host/rf-wine-build-host.sh
+          echo "[rf/ci] Listing archive:"
+          ls -lh rf-runtime-dev.tar.zst
+
+      - name: Upload runtime archive artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rf-runtime-dev
+          path: rf-runtime-dev.tar.zst
