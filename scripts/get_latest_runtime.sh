@@ -1,97 +1,92 @@
 #!/usr/bin/env bash
 # scripts/get_latest_runtime.sh
 #
-# Fetch the latest rf-runtime-dev release from GitHub, verify it, and extract
-# into a local runtime root.
-#
-# Env overrides:
-#   RF_RUNTIME_TAG   - explicit release tag (otherwise use latest)
-#   RF_RUNTIME_ROOT  - where to extract (default: $HOME/rf_runtime)
-#
-# This script assumes rf-runtime-dev.tar.zst was created by scripts/rf_pack_runtime.sh
-# using Termux-safe zstd settings (no --long=31).
+# Fetch and unpack the latest rf-runtime-dev release from GitHub.
+# Primary path: rf-runtime-dev.tar.zst
+# Termux-safe fallback: rf-runtime-dev.zip if tar.zst fails (e.g. window too large)
 
 set -euo pipefail
 
 OWNER="jasonsmr"
 REPO="robotforest-wow64-runtime"
 
-TAG="${RF_RUNTIME_TAG:-}"
-DEST_ROOT="${RF_RUNTIME_ROOT:-"$HOME/rf_runtime"}"
+ASSET_TAR="rf-runtime-dev.tar.zst"
+ASSET_ZIP="rf-runtime-dev.zip"
 
-WORKDIR="${PWD}"
-TMPDIR="${WORKDIR}/_rf_latest_tmp"
+# Where to put the unpacked runtime on this machine
+RUNTIME_ROOT="${RF_RUNTIME_ROOT:-"$HOME/rf_runtime"}"
+
+# Repo root (for temp dir)
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TMPDIR="$ROOT/_rf_latest_tmp"
 
 mkdir -p "$TMPDIR"
 
-###############################################################################
-# Resolve release tag
-###############################################################################
+# Allow override of the tag from the environment
+TAG="${RF_RUNTIME_TAG:-}"
+
 if [ -z "$TAG" ]; then
   echo "[rf] Fetching latest release tag from GitHub..."
-  # Avoid jq dependency; use grep/sed to pull tag_name
-  TAG="$(
-    curl -fsSL "https://api.github.com/repos/${OWNER}/${REPO}/releases/latest" \
-      | grep '"tag_name"' \
-      | head -n1 \
-      | sed 's/.*"tag_name": *"//; s/".*//'
-  )" || TAG=""
-
+  TAG="$(curl -fsSL "https://api.github.com/repos/$OWNER/$REPO/releases/latest" \
+    | sed -n 's/  *\"tag_name\": *\"\(.*\)\",/\1/p' \
+    | head -n1)"
   if [ -z "$TAG" ]; then
-    echo "[rf] ERROR: could not resolve latest release tag."
+    echo "[rf] ERROR: Failed to detect latest release tag."
     exit 1
   fi
+  echo "[rf] Using release tag: $TAG"
+else
+  echo "[rf] Using RF_RUNTIME_TAG=$TAG"
 fi
 
-echo "[rf] Using release tag: $TAG"
-echo
+BASE_URL="https://github.com/$OWNER/$REPO/releases/download/$TAG"
 
-BASE_URL="https://github.com/${OWNER}/${REPO}/releases/download/${TAG}"
-TAR_NAME="rf-runtime-dev.tar.zst"
-SHA_NAME="rf-runtime-dev.tar.zst.sha256"
+cd "$TMPDIR"
 
-TAR_PATH="${TMPDIR}/${TAR_NAME}"
-SHA_PATH="${TMPDIR}/${SHA_NAME}"
+echo "[rf] Downloading $ASSET_TAR..."
+curl -fL -o "$ASSET_TAR" "$BASE_URL/$ASSET_TAR"
 
-###############################################################################
-# Download artifacts
-###############################################################################
-echo "[rf] Downloading ${TAR_NAME}..."
-curl -fL "${BASE_URL}/${TAR_NAME}" -o "$TAR_PATH"
+echo "[rf] Downloading $ASSET_TAR.sha256..."
+curl -fL -o "$ASSET_TAR.sha256" "$BASE_URL/$ASSET_TAR.sha256"
 
-echo "[rf] Downloading ${SHA_NAME}..."
-curl -fL "${BASE_URL}/${SHA_NAME}" -o "$SHA_PATH"
+echo "[rf] Verifying sha256 for $ASSET_TAR..."
+sha256sum -c "$ASSET_TAR.sha256"
 
-###############################################################################
-# Verify sha256
-###############################################################################
-echo "[rf] Verifying sha256..."
-(
-  cd "$TMPDIR"
-  sha256sum -c "$SHA_NAME"
-)
-echo "[rf] sha256 OK"
+echo "[rf] Extracting tar.zst into: $RUNTIME_ROOT"
+rm -rf "$RUNTIME_ROOT"
+mkdir -p "$RUNTIME_ROOT"
 
-###############################################################################
-# Extract into DEST_ROOT
-###############################################################################
-echo "[rf] Extracting into: ${DEST_ROOT}"
+set +e
+zstd -d -c "$ASSET_TAR" | tar -C "$RUNTIME_ROOT" -xvf -
+tar_status=$?
+set -e
 
-mkdir -p "$DEST_ROOT"
-
-# Use plain Termux-safe zstd; packer MUST NOT use --long=31.
-if ! zstd -d -c "$TAR_PATH" | tar -C "$DEST_ROOT" -xvf -; then
+if [ "$tar_status" -ne 0 ]; then
   echo
-  echo "[rf] ERROR: failed to extract rf-runtime-dev.tar.zst"
-  echo "[rf] If you see 'Window size larger than maximum', the release was"
-  echo "[rf] built with an oversized zstd window. Update to a newer release"
-  echo "[rf] or rebuild rf-runtime-dev with scripts/rf_pack_runtime.sh."
-  exit 1
+  echo "[rf] WARNING: failed to extract $ASSET_TAR (status=$tar_status)."
+  echo "[rf] This often means the zstd window is too large for Termux."
+  echo "[rf] Falling back to $ASSET_ZIP instead..."
+
+  echo "[rf] Downloading $ASSET_ZIP..."
+  curl -fL -o "$ASSET_ZIP" "$BASE_URL/$ASSET_ZIP"
+
+  echo "[rf] Downloading $ASSET_ZIP.sha256..."
+  curl -fL -o "$ASSET_ZIP.sha256" "$BASE_URL/$ASSET_ZIP.sha256"
+
+  echo "[rf] Verifying sha256 for $ASSET_ZIP..."
+  sha256sum -c "$ASSET_ZIP.sha256"
+
+  echo "[rf] Extracting zip into: $RUNTIME_ROOT"
+  rm -rf "$RUNTIME_ROOT"
+  mkdir -p "$RUNTIME_ROOT"
+  unzip -q "$ASSET_ZIP" -d "$RUNTIME_ROOT"
 fi
 
 echo
-echo "[rf] Extraction complete. Runtime layout (depth <= 2):"
-find "$DEST_ROOT" -maxdepth 2 -type d | sed "s|$HOME||"
-
-echo
-echo "[rf] Done."
+echo "[rf] Runtime download + extract complete."
+echo "[rf] Location: $RUNTIME_ROOT"
+echo "[rf] You can now run:"
+echo "  cd \"$RUNTIME_ROOT\""
+echo "  ./rf_runtime_layout_check.sh"
+echo "  . ./rf_env.sh"
+echo "  box64 -v  # to sanity-check box64"
