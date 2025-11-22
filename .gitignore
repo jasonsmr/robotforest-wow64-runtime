@@ -27,3 +27,4 @@ staging/**/prefix/*.log
 *.tar
 *.tar.gz
 *.tar.zst
+_rf_latest_tmp/
