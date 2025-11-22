@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 # rf_runtime_layout_check.sh - sanity check RobotForest runtime layout
+#
+# NOTE:
+#   - Core dirs (bin, dxvk, vkd3d, wine32, wine64, prefix, x86_64-linux, i386-linux)
+#     are REQUIRED.
+#   - proton/ is OPTIONAL (present in desktop bundles, often omitted in Termux-only
+#     runtime for RobotForest APK embedding).
 
 set -euo pipefail
 
@@ -29,7 +35,6 @@ required_dirs=(
   wine32
   wine64
   prefix
-  proton
   x86_64-linux
   i386-linux
 )
@@ -41,6 +46,14 @@ for d in "${required_dirs[@]}"; do
     echo "[rf] MISSING: $d/" >&2
   fi
 done
+echo
+
+# Optional proton/ (present in some bundles, not required for Termux runtime)
+if [ -d "$ROOT/proton" ]; then
+  echo "[rf] OPTIONAL OK: proton/ present"
+else
+  echo "[rf] OPTIONAL: proton/ not present (this is fine for APK-only Termux runtime)"
+fi
 echo
 
 # Show a quick view of bin/
