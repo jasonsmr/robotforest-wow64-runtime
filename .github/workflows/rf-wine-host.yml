@@ -1,11 +1,10 @@
-name: rf-wine-host-runtime
+name: RF Wine Host Stub Runtime
 
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
     paths:
-      - 'tools/host/rf-wine-build-host.sh'
+      - 'tools/host/**'
       - '.github/workflows/rf-wine-host.yml'
 
 jobs:
@@ -47,10 +46,10 @@ jobs:
         run: |
           bash tools/host/rf-wine-build-host.sh
           echo "[rf/ci] Listing archive:"
-          ls -lh rf-runtime-dev.tar.zst
+          ls -lh tools/host/rf-runtime-dev.tar.zst
 
       - name: Upload runtime archive artifact
         uses: actions/upload-artifact@v4
         with:
           name: rf-runtime-dev
-          path: rf-runtime-dev.tar.zst
+          path: tools/host/rf-runtime-dev.tar.zst
