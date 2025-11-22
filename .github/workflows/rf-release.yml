@@ -1,0 +1,59 @@
+name: RF Release (pack + verify)
+
+on:
+  push:
+    branches:
+      - main
+      - ci/**
+    paths:
+      - 'staging/**'
+      - 'scripts/**'
+      - '.github/workflows/rf-release.yml'
+
+  workflow_dispatch:
+
+jobs:
+  pack-runtime:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zip zstd rsync
+
+      - name: Download host stub runtime
+        uses: actions/download-artifact@v4
+        with:
+          name: rf-runtime-dev
+          path: _host_stub/
+
+      - name: Verify host stub download
+        run: |
+          echo "[rf/release] Host stub downloaded to:"
+          ls -R _host_stub
+
+      - name: Prepare staging runtime (Android + host stub)
+        run: |
+          rm -rf rf_runtime_combined
+          mkdir -p rf_runtime_combined
+
+          # Copy Android staging first
+          rsync -a staging/rf_runtime/ rf_runtime_combined/
+
+          # Overlay host stub runtime
+          # (wine32/wine64 placeholders, proton/, dxvk/, vkd3d/, prefixes, etc.)
+          rsync -a _host_stub/ rf_runtime_combined/
+
+      - name: Run rf_pack_runtime.sh
+        run: |
+          bash scripts/rf_pack_runtime.sh
+
+      - name: Upload packed runtime artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rf-runtime-dev
+          path: dist/*
