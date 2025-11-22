@@ -34,6 +34,9 @@ DIST="$ROOT/dist"
 
 TAG="${RF_TAG:-dev}"
 
+# Add version tag into runtime.version
+echo "$TAG" > "$STAGING/runtime.version"
+
 echo "[rf/pack] Using:"
 echo "  ROOT    = $ROOT"
 echo "  STAGING = $STAGING"
