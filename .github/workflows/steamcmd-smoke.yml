@@ -1,0 +1,16 @@
+name: SteamCMD Smoke (auto stub)
+
+on:
+  # Make this workflow manual-only so it never blocks feature branches.
+  workflow_dispatch:
+
+jobs:
+  steamcmd-smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Print stub notice
+        run: |
+          echo "[rf/ci] SteamCMD smoke (auto) is currently a stub workflow."
+          echo "[rf/ci] It is manual-only to avoid blocking non-main branches."
+          echo "[rf/ci] TODO: wire this up to real SteamCMD-based runtime smoke when ready."
